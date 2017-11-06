@@ -1,118 +1,97 @@
+import { ActionMode, ActionSource, SelectionType } from 'app/model/actionmode';
+import { LayerUtil, MorphableLayer, VectorLayer } from 'app/model/layers';
+import { Animation, PathAnimationBlock } from 'app/model/timeline';
+import { ActionModeUtil } from 'app/scripts/actionmode';
+import { AnimationRenderer } from 'app/scripts/animator';
+import { getHiddenLayerIds, getSelectedLayerIds, getVectorLayer } from 'app/store/layers/selectors';
+import { State } from 'app/store/reducer';
+import { createDeepEqualSelector, getAppState } from 'app/store/selectors';
 import {
-  getHiddenLayerIds,
-  getSelectedLayerIds,
-  getVectorLayer,
-} from '../layers/selectors';
-import { State } from '../reducer';
-import {
-  createDeepEqualSelector,
-  getAppState,
-} from '../selectors';
-import { getAnimations } from '../timeline/selectors';
-import {
-  ActionMode,
-  ActionModeUtil,
-  ActionSource,
-  SelectionType,
-} from 'app/scripts/model/actionmode';
-import {
-  LayerUtil,
-  MorphableLayer,
-  VectorLayer,
-} from 'app/scripts/model/layers';
-import { Path } from 'app/scripts/model/paths';
-import { PathAnimationBlock } from 'app/scripts/model/timeline';
-import * as _ from 'lodash';
-import {
-  createSelector,
-  createStructuredSelector,
-} from 'reselect';
+  getAnimation,
+  getSingleSelectedBlockLayerId,
+  getSingleSelectedPathBlock,
+} from 'app/store/timeline/selectors';
+import { createSelector, createStructuredSelector } from 'reselect';
 
 const getActionModeState = createSelector(getAppState, s => s.actionmode);
-const getBlockId = createSelector(getActionModeState, s => s.blockId);
-const getBlock =
-  createSelector(
-    [getAnimations, getBlockId],
-    (animations, blockId) => {
-      if (!blockId) {
-        return undefined;
-      }
-      for (const anim of animations) {
-        const block = _.find(anim.blocks, b => b.id === blockId);
-        if (block instanceof PathAnimationBlock) {
-          return block;
-        }
-      }
-      return undefined;
-    },
-  );
-const getBlockLayerId = createSelector(getBlock, b => b ? b.layerId : undefined);
-
 export const getActionMode = createSelector(getActionModeState, s => s.mode);
 export const isActionMode = createSelector(getActionMode, mode => mode !== ActionMode.None);
 export const getActionModeHover = createDeepEqualSelector(getActionModeState, s => s.hover);
 
-const getActionModeSelections =
-  createDeepEqualSelector(getActionModeState, s => s.selections);
+export const getActionModeSelections = createDeepEqualSelector(
+  getActionModeState,
+  s => s.selections,
+);
 
-export const getActionModeSubPathSelections =
-  createDeepEqualSelector(
-    getActionModeSelections,
-    selections => selections.filter(s => s.type === SelectionType.SubPath),
-  );
-export const getActionModeSegmentSelections =
-  createDeepEqualSelector(
-    getActionModeSelections,
-    selections => selections.filter(s => s.type === SelectionType.Segment),
-  );
-export const getActionModePointSelections =
-  createDeepEqualSelector(
-    getActionModeSelections,
-    selections => selections.filter(s => s.type === SelectionType.Point),
-  );
+export const getActionModeSubPathSelections = createDeepEqualSelector(
+  getActionModeSelections,
+  selections => selections.filter(s => s.type === SelectionType.SubPath),
+);
+export const getActionModeSegmentSelections = createDeepEqualSelector(
+  getActionModeSelections,
+  selections => selections.filter(s => s.type === SelectionType.Segment),
+);
+export const getActionModePointSelections = createDeepEqualSelector(
+  getActionModeSelections,
+  selections => selections.filter(s => s.type === SelectionType.Point),
+);
 
-const getPairedSubPaths =
-  createDeepEqualSelector(getActionModeState, state => new Set(state.pairedSubPaths));
-const getUnpairedSubPath =
-  createDeepEqualSelector(getActionModeState, state => state.unpairedSubPath);
+export const getPairedSubPaths = createDeepEqualSelector(
+  getActionModeState,
+  state => state.pairedSubPaths,
+);
+export const getUnpairedSubPath = createDeepEqualSelector(
+  getActionModeState,
+  state => state.unpairedSubPath,
+);
 
-function getVectorLayerValue(getValueFn: (block: PathAnimationBlock) => Path) {
+function getVectorLayerValue(getTimeFn: (block: PathAnimationBlock) => number) {
   return createSelector(
-    [getVectorLayer, getBlock],
-    (vl, block) => {
-      if (!vl || !block) {
+    [getVectorLayer, getAnimation, getSingleSelectedPathBlock],
+    (vl, anim, block) => {
+      if (!block) {
         return undefined;
       }
+      // Note this is a bit dangerous because the renderer interpolates paths
+      // and that causes all mutated path state to be lost if we aren't careful.
+      // There are currently checks in PathProperty.ts to avoid this by returning
+      // the start and end path when the interpolated fraction is 0 and 1 respectively.
+      const renderer = new AnimationRenderer(vl, anim);
+      const timeMillis = getTimeFn(block);
+      // First interpolate the entire vector layer.
+      const renderedVl = renderer.setAnimationTime(timeMillis);
+      // TODO: this is hacky! the real solution is to not clear path state after interpolations
+      // Replace the interpolated value with the block's to/from value.
       const layer = vl.findLayerById(block.layerId).clone() as MorphableLayer;
-      layer.pathData = getValueFn(block);
-      return LayerUtil.replaceLayerInTree(vl, layer);
-    });
+      layer.pathData = timeMillis === block.startTime ? block.fromValue : block.toValue;
+      return LayerUtil.updateLayer(renderedVl, layer);
+    },
+  );
 }
 
-const getVectorLayerFromValue = getVectorLayerValue(block => block.fromValue);
-const getVectorLayerToValue = getVectorLayerValue(block => block.toValue);
+const getVectorLayerFromValue = getVectorLayerValue(block => block.startTime);
+const getVectorLayerToValue = getVectorLayerValue(block => block.endTime);
 
-type CombinerFunc = (vl: VectorLayer, block: PathAnimationBlock) => VectorLayer;
+type CombinerFunc = (vl: VectorLayer, anim: Animation, block: PathAnimationBlock) => VectorLayer;
 
-function getMorphableLayerValue<T>(selector: Reselect.OutputSelector<State, VectorLayer, CombinerFunc>) {
-  return createSelector(
-    [selector, getBlockLayerId],
-    (vl, blockLayerId) => {
-      if (!vl || !blockLayerId) {
-        return undefined;
-      }
-      return vl.findLayerById(blockLayerId) as MorphableLayer;
-    });
+function getMorphableLayerValue(
+  selector: Reselect.OutputSelector<State, VectorLayer, CombinerFunc>,
+) {
+  return createSelector([selector, getSingleSelectedBlockLayerId], (vl, blockLayerId) => {
+    if (!vl || !blockLayerId) {
+      return undefined;
+    }
+    return vl.findLayerById(blockLayerId) as MorphableLayer;
+  });
 }
 
 const getMorphableLayerFromValue = getMorphableLayerValue(getVectorLayerFromValue);
 const getMorphableLayerToValue = getMorphableLayerValue(getVectorLayerToValue);
 
-const getPathsCompatibleResult =
-  createSelector(
-    getBlock,
-    block => block ? ActionModeUtil.checkPathsCompatible(block) : undefined,
-  );
+const getPathsCompatibleResult = createSelector(
+  getSingleSelectedPathBlock,
+  block => (block ? ActionModeUtil.checkPathsCompatible(block) : undefined),
+);
 
 function getHighlightedSubIdxWithError(actionSource: ActionSource) {
   return createSelector(
@@ -137,7 +116,7 @@ function getHighlightedSubIdxWithError(actionSource: ActionSource) {
 }
 
 const actionModeBaseSelectors = {
-  blockLayerId: getBlockLayerId,
+  blockLayerId: getSingleSelectedBlockLayerId,
   isActionMode,
   hover: getActionModeHover,
   selections: getActionModeSelections,
@@ -147,27 +126,23 @@ const actionModeBaseSelectors = {
   selectedLayerIds: getSelectedLayerIds,
 };
 
-export const getActionModeStartState =
-  createStructuredSelector({
-    ...actionModeBaseSelectors,
-    vectorLayer: getVectorLayerFromValue,
-    subIdxWithError: getHighlightedSubIdxWithError(ActionSource.From),
-  });
+export const getActionModeStartState = createStructuredSelector({
+  ...actionModeBaseSelectors,
+  vectorLayer: getVectorLayerFromValue,
+  subIdxWithError: getHighlightedSubIdxWithError(ActionSource.From),
+});
 
-export const getActionModeEndState =
-  createStructuredSelector({
-    ...actionModeBaseSelectors,
-    vectorLayer: getVectorLayerToValue,
-    subIdxWithError: getHighlightedSubIdxWithError(ActionSource.To),
-  });
+export const getActionModeEndState = createStructuredSelector({
+  ...actionModeBaseSelectors,
+  vectorLayer: getVectorLayerToValue,
+  subIdxWithError: getHighlightedSubIdxWithError(ActionSource.To),
+});
 
-export const getToolbarState =
-  createStructuredSelector({
-    isActionMode,
-    fromMl: getMorphableLayerFromValue,
-    toMl: getMorphableLayerToValue,
-    mode: getActionMode,
-    selections: getActionModeSelections,
-    unpairedSubPath: getUnpairedSubPath,
-    block: getBlock,
-  });
+export const getToolbarState = createStructuredSelector({
+  mode: getActionMode,
+  fromMl: getMorphableLayerFromValue,
+  toMl: getMorphableLayerToValue,
+  selections: getActionModeSelections,
+  unpairedSubPath: getUnpairedSubPath,
+  block: getSingleSelectedPathBlock,
+});

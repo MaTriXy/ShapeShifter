@@ -1,13 +1,11 @@
-import { CanvasOverlayDirective } from './canvasoverlay.directive';
+import { ActionMode } from 'app/model/actionmode';
+import { HitResult, ProjectionOntoPath } from 'app/model/paths';
 import { Point } from 'app/scripts/common';
-import { ActionMode } from 'app/scripts/model/actionmode';
-import { HitResult, ProjectionOntoPath } from 'app/scripts/model/paths';
-import { ActionModeService } from 'app/services/actionmode/actionmode.service';
-import {
-  State,
-  Store,
-} from 'app/store';
+import { ActionModeService } from 'app/services';
+import { State, Store } from 'app/store';
 import * as _ from 'lodash';
+
+import { CanvasOverlayDirective } from './canvasoverlay.directive';
 
 interface ProjInfo {
   readonly proj: ProjectionOntoPath;
@@ -38,7 +36,7 @@ export class ShapeSplitter {
     this.initProjInfos = [];
     this.finalProjInfos = [];
     this.lastKnownMouseLocation = mouseDown;
-    this.hitResult = this.component.performHitTest(mouseDown);
+    this.hitResult = this.performHitTest(mouseDown);
     const { isEndPointHit, isSegmentHit, endPointHits, segmentHits } = this.hitResult;
     if (isEndPointHit || isSegmentHit) {
       for (const proj of endPointHits) {
@@ -56,7 +54,7 @@ export class ShapeSplitter {
   onMouseMove(mouseMove: Point) {
     this.finalProjInfos = [];
     this.lastKnownMouseLocation = mouseMove;
-    this.hitResult = this.component.performHitTest(mouseMove);
+    this.hitResult = this.performHitTest(mouseMove);
     if (!this.initProjInfos.length) {
       this.component.draw();
       return;
@@ -125,8 +123,14 @@ export class ShapeSplitter {
     if (initProjInfo && finalProjInfo) {
       const activeLayer = this.component.activePathLayer;
       const pathMutator = activeLayer.pathData.mutate();
-      const { proj: { subIdx: initSubIdx, cmdIdx: initCmdIdx }, isEndPt: isInitEndPt } = initProjInfo;
-      const { proj: { subIdx: finalSubIdx, cmdIdx: finalCmdIdx }, isEndPt: isFinalEndPt } = finalProjInfo;
+      const {
+        proj: { subIdx: initSubIdx, cmdIdx: initCmdIdx },
+        isEndPt: isInitEndPt,
+      } = initProjInfo;
+      const {
+        proj: { subIdx: finalSubIdx, cmdIdx: finalCmdIdx },
+        isEndPt: isFinalEndPt,
+      } = finalProjInfo;
       let lastCmdOffset = 0;
       if (!isInitEndPt || !isFinalEndPt) {
         if (initCmdIdx > finalCmdIdx) {
@@ -158,22 +162,18 @@ export class ShapeSplitter {
         }
       }
 
-      // TODO: make sure the inspector doesn't set hovers/selections while a split is in process...
       this.component.actionModeService.clearHover();
       this.actionModeService.setSelections([]);
       this.reset();
 
       // TODO: some bugs with this path: M 0 20 v -16 h 20 v 2 h -12 v 2 h 12 v 2 h -12 Z
-      // TODO: is it possible for there to be 1 or 2 intersections and be invalid?
       // TODO: how should we deal with collinear intersections? (i.e. drawing a line across the same line)
       const startingCmdIdx = initCmdIdx > finalCmdIdx ? finalCmdIdx : initCmdIdx;
       const endingCmdIdx =
         initCmdIdx > finalCmdIdx ? initCmdIdx + lastCmdOffset : finalCmdIdx + lastCmdOffset;
       this.actionModeService.updateActivePathBlock(
         this.component.actionSource,
-        pathMutator
-          .splitFilledSubPath(initSubIdx, startingCmdIdx, endingCmdIdx)
-          .build(),
+        pathMutator.splitFilledSubPath(initSubIdx, startingCmdIdx, endingCmdIdx).build(),
       );
     }
     this.reset();
@@ -183,7 +183,7 @@ export class ShapeSplitter {
   onMouseLeave(mouseLeave: Point) {
     this.finalProjInfos = [];
     this.lastKnownMouseLocation = mouseLeave;
-    this.hitResult = this.component.performHitTest(mouseLeave);
+    this.hitResult = this.performHitTest(mouseLeave);
     if (!this.initProjInfos.length) {
       return;
     }
@@ -200,10 +200,15 @@ export class ShapeSplitter {
       for (const proj of segmentHits) {
         this.finalProjInfos.push({ proj, isEndPt: false });
       }
-      const allowedSubIdxs =
-        new Set<number>(this.initProjInfos.map(projInfo => projInfo.proj.subIdx));
+      const allowedSubIdxs = new Set<number>(
+        this.initProjInfos.map(projInfo => projInfo.proj.subIdx),
+      );
       _.remove(this.finalProjInfos, projInfo => !allowedSubIdxs.has(projInfo.proj.subIdx));
     }
+  }
+
+  private performHitTest(mousePoint: Point) {
+    return this.component.performHitTest(mousePoint, { withExtraSegmentPadding: true });
   }
 
   private reset() {

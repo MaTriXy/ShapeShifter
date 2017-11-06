@@ -1,10 +1,7 @@
 import 'rxjs/add/observable/combineLatest';
+import 'rxjs/add/operator/distinctUntilChanged';
+import 'rxjs/add/operator/map';
 
-import { CanvasContainerDirective } from './canvascontainer.directive';
-import { CanvasLayersDirective } from './canvaslayers.directive';
-import { CanvasLayoutMixin, Size } from './CanvasLayoutMixin';
-import { CanvasOverlayDirective } from './canvasoverlay.directive';
-import { CanvasRulerDirective } from './canvasruler.directive';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -16,14 +13,20 @@ import {
   ViewChild,
   ViewChildren,
 } from '@angular/core';
-import { Point } from 'app/scripts/common';
+import { ActionSource } from 'app/model/actionmode';
 import { DestroyableMixin } from 'app/scripts/mixins';
-import { ActionSource } from 'app/scripts/model/actionmode';
+import { ThemeService } from 'app/services';
 import { State, Store } from 'app/store';
 import { getVectorLayer } from 'app/store/layers/selectors';
 import * as $ from 'jquery';
 import * as _ from 'lodash';
 import { Observable } from 'rxjs/Observable';
+
+import { CanvasContainerDirective } from './canvascontainer.directive';
+import { CanvasLayersDirective } from './canvaslayers.directive';
+import { CanvasOverlayDirective } from './canvasoverlay.directive';
+import { CanvasRulerDirective } from './canvasruler.directive';
+import { CanvasLayoutMixin, Size } from './CanvasLayoutMixin';
 
 // Canvas margin in css pixels.
 const CANVAS_MARGIN = 36;
@@ -34,10 +37,8 @@ const CANVAS_MARGIN = 36;
   styleUrls: ['./canvas.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class CanvasComponent
-  extends CanvasLayoutMixin(DestroyableMixin())
+export class CanvasComponent extends CanvasLayoutMixin(DestroyableMixin())
   implements AfterViewInit {
-
   @ViewChild(CanvasContainerDirective) canvasContainer: CanvasContainerDirective;
   @ViewChild(CanvasLayersDirective) canvasLayers: CanvasLayersDirective;
   @ViewChild(CanvasOverlayDirective) canvasOverlay: CanvasOverlayDirective;
@@ -49,26 +50,29 @@ export class CanvasComponent
   private readonly $element: JQuery;
 
   constructor(
-    readonly elementRef: ElementRef,
+    elementRef: ElementRef,
     private readonly store: Store<State>,
+    readonly themeService: ThemeService,
   ) {
     super();
     this.$element = $(elementRef.nativeElement);
   }
 
   ngAfterViewInit() {
-    const activeViewport$ =
-      this.store.select(getVectorLayer)
-        .map(vl => { return { w: vl.width, h: vl.height }; })
-        .distinctUntilChanged((x, y) => _.isEqual(x, y));
+    const activeViewport$ = this.store
+      .select(getVectorLayer)
+      .map(vl => ({ w: vl.width, h: vl.height }))
+      .distinctUntilChanged(_.isEqual);
     this.registerSubscription(
-      Observable.combineLatest(this.canvasBounds$, activeViewport$)
-        .map(([bounds, viewport]) => { return { bounds, viewport }; })
-        .subscribe(({ bounds, viewport }) => {
-          const w = Math.max(1, bounds.w - CANVAS_MARGIN * 2);
-          const h = Math.max(1, bounds.h - CANVAS_MARGIN * 2);
-          this.setDimensions({ w, h }, viewport);
-        }));
+      Observable.combineLatest(
+        this.canvasBounds$,
+        activeViewport$,
+      ).subscribe(([bounds, viewport]) => {
+        const w = Math.max(1, bounds.w - CANVAS_MARGIN * 2);
+        const h = Math.max(1, bounds.h - CANVAS_MARGIN * 2);
+        this.setDimensions({ w, h }, viewport);
+      }),
+    );
   }
 
   // @Override
@@ -84,21 +88,25 @@ export class CanvasComponent
 
   @HostListener('mousedown', ['$event'])
   onMouseDown(event: MouseEvent) {
+    this.canvasOverlay.onMouseDown(event);
     this.showRuler(event);
   }
 
   @HostListener('mousemove', ['$event'])
   onMouseMove(event: MouseEvent) {
+    this.canvasOverlay.onMouseMove(event);
     this.showRuler(event);
   }
 
   @HostListener('mouseup', ['$event'])
   onMouseUp(event: MouseEvent) {
+    this.canvasOverlay.onMouseUp(event);
     this.showRuler(event);
   }
 
   @HostListener('mouseleave', ['$event'])
   onMouseLeave(event: MouseEvent) {
+    this.canvasOverlay.onMouseLeave(event);
     this.hideRuler();
   }
 
@@ -106,7 +114,7 @@ export class CanvasComponent
     const canvasOffset = this.$element.offset();
     const x = (event.pageX - canvasOffset.left) / Math.max(1, this.cssScale);
     const y = (event.pageY - canvasOffset.top) / Math.max(1, this.cssScale);
-    this.canvasRulers.forEach(r => r.showMouse(new Point(_.round(x), _.round(y))));
+    this.canvasRulers.forEach(r => r.showMouse({ x: _.round(x), y: _.round(y) }));
   }
 
   private hideRuler() {

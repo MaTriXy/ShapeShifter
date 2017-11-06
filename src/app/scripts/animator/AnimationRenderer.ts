@@ -1,17 +1,7 @@
-import {
-  LayerMap,
-  ModelUtil,
-  PropertyMap,
-} from 'app/scripts/common';
-import { INTERPOLATORS } from 'app/scripts/model/interpolators';
-import {
-  Layer,
-  VectorLayer,
-} from 'app/scripts/model/layers';
-import {
-  Animation,
-  AnimationBlock,
-} from 'app/scripts/model/timeline';
+import { INTERPOLATORS } from 'app/model/interpolators';
+import { Layer, VectorLayer } from 'app/model/layers';
+import { Animation, AnimationBlock } from 'app/model/timeline';
+import { ModelUtil } from 'app/scripts/common';
 import * as _ from 'lodash';
 
 const DEFAULT_LAYER_PROPERTY_STATE: PropertyState = {
@@ -27,12 +17,10 @@ export class AnimationRenderer {
   private readonly renderedVectorLayer: VectorLayer;
 
   // Keys are layerIds and values are RenderedData objects.
-  private readonly animDataByLayer: LayerMap<RendererData> = {};
+  private readonly animDataByLayer: Dictionary<RendererData> = {};
 
-  constructor(
-    readonly originalVectorLayer: VectorLayer,
-    readonly activeAnimation: Animation,
-  ) {
+  constructor(originalVectorLayer: VectorLayer, activeAnimation: Animation) {
+    // TODO: technically this could be more performant if we only cloned the affected layers
     this.renderedVectorLayer = originalVectorLayer.deepClone();
     const animDataByLayer = ModelUtil.getOrderedBlocksByPropertyByLayer(activeAnimation);
     Object.keys(animDataByLayer).forEach(layerId => {
@@ -51,10 +39,10 @@ export class AnimationRenderer {
    * vector layer should not be mutated externally, as it will be cached and
    * returned on subsequent time frames.
    */
-  setAnimationTime(time: number) {
+  setAnimationTime(timeMillis: number) {
     Object.keys(this.animDataByLayer).forEach(layerId => {
       const animData = this.animDataByLayer[layerId];
-      animData.cachedState = animData.cachedState || {} as PropertyState;
+      animData.cachedState = animData.cachedState || ({} as PropertyState);
 
       Object.keys(animData.orderedBlocks).forEach(propertyName => {
         const blocks = animData.orderedBlocks[propertyName];
@@ -64,16 +52,15 @@ export class AnimationRenderer {
         const property = animData.originalLayer.animatableProperties.get(propertyName);
         let value = animData.originalLayer[propertyName];
         for (const block of blocks) {
-          if (time < block.startTime) {
+          if (timeMillis < block.startTime) {
             break;
           }
-          if (time < block.endTime) {
-            const fromValue = ('fromValue' in block) ? block.fromValue : value;
-            const f = (time - block.startTime) / (block.endTime - block.startTime);
+          if (timeMillis < block.endTime) {
+            const f = (timeMillis - block.startTime) / (block.endTime - block.startTime);
             // TODO: this is a bit hacky... no need to perform a search every time.
-            const interpolatorFn =
-              _.find(INTERPOLATORS, i => i.value === block.interpolator).interpolateFn;
-            value = property.interpolateValue(fromValue, block.toValue, interpolatorFn(f));
+            const interpolatorFn = _.find(INTERPOLATORS, i => i.value === block.interpolator)
+              .interpolateFn;
+            value = property.interpolateValue(block.fromValue, block.toValue, interpolatorFn(f));
             _ar.activeBlock = block;
             _ar.interpolatedValue = true;
             break;
@@ -96,7 +83,8 @@ export class AnimationRenderer {
 interface RendererData {
   readonly originalLayer: Layer;
   readonly renderedLayer: Layer;
-  readonly orderedBlocks: PropertyMap<AnimationBlock[]>;
+  // Maps property names to animation block lists.
+  readonly orderedBlocks: Dictionary<AnimationBlock[]>;
   cachedState?: PropertyState;
 }
 

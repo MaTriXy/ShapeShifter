@@ -1,15 +1,10 @@
-import { CanvasOverlayDirective } from './canvasoverlay.directive';
+import { ActionMode, ActionSource } from 'app/model/actionmode';
+import { ProjectionOntoPath } from 'app/model/paths';
 import { Point } from 'app/scripts/common';
-import {
-  ActionMode,
-  ActionSource,
-} from 'app/scripts/model/actionmode';
-import { ProjectionOntoPath } from 'app/scripts/model/paths';
-import { ActionModeService } from 'app/services/actionmode/actionmode.service';
-import {
-  State,
-  Store,
-} from 'app/store';
+import { ActionModeService } from 'app/services';
+import { State, Store } from 'app/store';
+
+import { CanvasOverlayDirective } from './canvasoverlay.directive';
 
 interface ProjInfo {
   readonly proj: ProjectionOntoPath;
@@ -52,14 +47,10 @@ export class SegmentSplitter {
         pathMutator.splitStrokedSubPath(subIdx, cmdIdx);
       }
 
-      // TODO: make sure the inspector doesn't set hovers/selections while a split is in process...
       this.component.actionModeService.clearHover();
       this.actionModeService.setSelections([]);
       this.currProjInfo = undefined;
-      this.actionModeService.updateActivePathBlock(
-        this.actionSource,
-        pathMutator.build(),
-      );
+      this.actionModeService.updateActivePathBlock(this.actionSource, pathMutator.build());
       this.component.draw();
       return;
     }
@@ -78,7 +69,7 @@ export class SegmentSplitter {
     this.component.draw();
   }
 
-  onMouseLeave(mouseLeave) {
+  onMouseLeave(mouseLeave: Point) {
     this.lastKnownMouseLocation = mouseLeave;
     this.currProjInfo = undefined;
     this.component.draw();
@@ -97,7 +88,7 @@ export class SegmentSplitter {
 
   private findProjInfo(mousePoint: Point) {
     const projInfos: ProjInfo[] = [];
-    const hitResult = this.component.performHitTest(mousePoint);
+    const hitResult = this.component.performHitTest(mousePoint, { withExtraSegmentPadding: true });
     const { isEndPointHit, isSegmentHit, endPointHits, segmentHits } = hitResult;
     if (isEndPointHit) {
       for (const proj of endPointHits) {

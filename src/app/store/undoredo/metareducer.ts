@@ -1,8 +1,8 @@
-import * as actionModeActions from '../actionmode/actions';
-import * as playbackActions from '../playback/actions';
-import { AppState } from '../reducer';
-import { Action, ActionReducer } from '@ngrx/store';
-import undoable, { StateWithHistory, excludeAction } from 'redux-undo';
+import * as actionModeActions from 'app/store/actionmode/actions';
+import { Action, ActionReducer } from 'app/store/ngrx';
+import * as playbackActions from 'app/store/playback/actions';
+import { AppState } from 'app/store/reducer';
+import undoable, { StateWithHistory, UndoableOptions, excludeAction } from 'redux-undo';
 
 const UNDO_HISTORY_SIZE = 30;
 const UNDO_DEBOUNCE_MILLIS = 1000;
@@ -10,7 +10,6 @@ const UNDO_EXCLUDED_ACTIONS = [
   playbackActions.SET_IS_SLOW_MOTION,
   playbackActions.SET_IS_PLAYING,
   playbackActions.SET_IS_REPEATING,
-  actionModeActions.START_ACTION_MODE,
   actionModeActions.SET_ACTION_MODE,
   actionModeActions.SET_ACTION_MODE_HOVER,
 ];
@@ -33,10 +32,9 @@ export function metaReducer(reducer: AppStateReducer): StateReducer {
         return groupCounter;
       }
       groupCounter++;
-      // tslint:disable-next-line
-      return null;
+      return undefined;
     },
-  });
+  } as UndoableOptions);
   return (state: StateWithHistoryAndTimestamp, action: Action) => {
     return { ...undoableReducer(state, action), timestamp: Date.now() };
   };

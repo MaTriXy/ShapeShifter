@@ -8,8 +8,8 @@
 
 -----
 
-[Shape Shifter](https://alexjlockwood.github.io/ShapeShifter/) is a web-app that simplifies the process of
-creating SVG-based [path morphing animations][adp-path-morphing].
+[Shape Shifter](https://alexjlockwood.github.io/ShapeShifter/) is a web-app that simplifies
+the creation of [icon animations][adp-icon-animations] for Android, iOS, and the web.
 
 This tool currently exports to standalone SVGs, SVG spritesheets,
 and CSS keyframe animations for the web, as well as to
@@ -20,11 +20,31 @@ file a [feature request][report-feature-request]!
 
 ![Screen capture of tool](art/screencap.gif)
 
+## Backers
+
+Support us with a monthly donation and help us continue our activities. 
+Funds will go towards hiring new developers to work on awesome features! 
+We'll display your logo below with a link to your site. 
+🙏 [[Become a backer](https://opencollective.com/shapeshifter#backer)]
+
+<a href="https://opencollective.com/shapeshifter/backer/0/website" target="_blank"><img src="https://opencollective.com/shapeshifter/backer/0/avatar.svg"></a>
+<a href="https://opencollective.com/shapeshifter/backer/1/website" target="_blank"><img src="https://opencollective.com/shapeshifter/backer/1/avatar.svg"></a>
+<a href="https://opencollective.com/shapeshifter/backer/2/website" target="_blank"><img src="https://opencollective.com/shapeshifter/backer/2/avatar.svg"></a>
+<a href="https://opencollective.com/shapeshifter/backer/3/website" target="_blank"><img src="https://opencollective.com/shapeshifter/backer/3/avatar.svg"></a>
+<a href="https://opencollective.com/shapeshifter/backer/4/website" target="_blank"><img src="https://opencollective.com/shapeshifter/backer/4/avatar.svg"></a>
+<a href="https://opencollective.com/shapeshifter/backer/6/website" target="_blank"><img src="https://opencollective.com/shapeshifter/backer/6/avatar.svg"></a>
+
+## Sponsors
+
+Is your company using Shape Shifter? Ask your manager to support us! 
+We'll display your logo below with a link to your site. 
+🙏 [[Become a sponsor](https://opencollective.com/shapeshifter#sponsor)]
+
 ## Examples
 
 Here are some example icon animations created by Shape Shifter:
 
-<img src="art/expandcollapse.gif" alt="Expand to collapse animation" width="216px"/><img src="art/moreback.gif" alt="Overflow to back arrow animation" width="216px"/><img src="art/playpausestop.gif" alt="Play-pause-stop animation" width="216px"/><img src="art/animals.gif" alt="Animals animation" width="216px" vspace="34px"/><img src="art/plusminus.gif" alt="Plus-to-minus animation" width="216px"/><img src="art/cast.gif" alt="Cast animation" width="216px"/><img src="art/drawerarrow.gif" alt="Drawer-to-arrow animation" width="216px"/><img src="art/digits.gif" alt="Digits animation" width="216px"/>
+<img src="art/expandcollapse.gif" alt="Expand to collapse animation" width="216px"/><img src="art/moreback.gif" alt="Overflow to back arrow animation" width="216px"/><img src="art/playpausestop.gif" alt="Play-pause-stop animation" width="216px"/><img src="art/animals.gif" alt="Animals animation" width="216px" vspace="34px"/><!--<img src="art/plusminus.gif" alt="Plus-to-minus animation" width="216px"/><img src="art/cast.gif" alt="Cast animation" width="216px"/><img src="art/drawerarrow.gif" alt="Drawer-to-arrow animation" width="216px"/><img src="art/digits.gif" alt="Digits animation" width="216px"/>-->
 
 ## Problem
 
@@ -73,7 +93,7 @@ Pretty much all of the graphics in this app are powered by bezier curve approxim
 I learned most of what I needed to know from this excellent [primer on bezier curves][primer-on-bezier-curves]
 (especially sections 9 and 33, which explain how to split and project points onto bezier
 curves without altering their original appearance). Most of the interesting SVG-related code
-is located under [`src/app/scripts/model/paths`](https://github.com/alexjlockwood/ShapeShifter/tree/master/src/app/scripts/model/paths).
+is located under [`src/app/model/paths`](https://github.com/alexjlockwood/ShapeShifter/tree/master/src/app/model/paths).
 
 Auto fix is powered by an adaptation of the [Needleman-Wunsch algorithm][Needleman-Wunsch],
 which is used in bioinformatics to align protein or nucleotide sequences. Instead of
@@ -118,6 +138,7 @@ Huge thanks to [Nick Butcher][nick-butcher-twitter], [Roman Nurik][roman-nurik-t
 and [Steph Yim][steph-yim-website] for all of their help during the early stages of this project!
 
   [report-feature-request]: https://github.com/alexjlockwood/ShapeShifter/issues/new
+  [adp-icon-animations]: http://www.androiddesignpatterns.com/2016/11/introduction-to-icon-animation-techniques.html
   [adp-path-morphing]: http://www.androiddesignpatterns.com/2016/11/introduction-to-icon-animation-techniques.html#morphing-paths
   [sketch]: https://www.sketchapp.com/
   [illustrator]: http://www.adobe.com/products/illustrator.html

@@ -1,6 +1,3 @@
-@import '../../styles/material-shadows';
-@import '../../styles/variables';
-@import '../../styles/theme';
 :host,
 .app-container {
   position: absolute;
@@ -24,13 +21,6 @@ div.toolbar-container {
   z-index: 1;
 }
 
-div.display-container {
-  box-sizing: border-box;
-  padding: 16px;
-  background-color: mat-color(mat-palette($mat-grey, 300));
-  user-select: none;
-}
-
 .file-drop-target {
   &.is-dragging-over::after {
     content: '';
@@ -41,15 +31,36 @@ div.display-container {
     bottom: 0;
     z-index: 9999;
     animation: pulsate-color .66s ease 0s infinite;
-    background-color: rgba($colorPrimary600, .5);
-    box-shadow: 0 0 0 8px $colorPrimary600 inset;
     pointer-events: none;
     transform: translateZ(0);
   }
-
   @keyframes pulsate-color {
-    0% { opacity: .5; }
-    50% { opacity: 1; }
-    100% { opacity: .5; }
+    0% {
+      opacity: .5;
+    }
+    50% {
+      opacity: 1;
+    }
+    100% {
+      opacity: .5;
+    }
   }
+}
+
+.show-default-cursor {
+  cursor: default;
+}
+
+.show-pointer-cursor {
+  cursor: pointer;
+}
+
+.show-pen-cursor {
+  cursor: url(/assets/cursor/penaddcursorsmall.png) 5 0, auto;
+}
+
+div.display-container {
+  box-sizing: border-box;
+  padding-bottom: 16px;
+  user-select: none;
 }

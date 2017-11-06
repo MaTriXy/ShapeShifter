@@ -1,11 +1,12 @@
 import {
   Component,
   ElementRef,
+  EventEmitter,
   HostBinding,
   HostListener,
   Input,
   OnInit,
-  ViewEncapsulation,
+  Output,
 } from '@angular/core';
 import { Dragger } from 'app/scripts/dragger';
 import * as $ from 'jquery';
@@ -17,14 +18,17 @@ type Edge = 'left' | 'right' | 'top';
   selector: 'app-splitter',
   templateUrl: './splitter.component.html',
   styleUrls: ['./splitter.component.scss'],
-  // TODO: remove view encapsulation here
-  encapsulation: ViewEncapsulation.None,
+  // TODO: use 'OnPush' change detection
 })
 export class SplitterComponent implements OnInit {
   @Input() edge: Edge;
   @Input() min: number;
   @Input() persistId: string;
-  @HostBinding('class') classNames = '';
+  @Output() split = new EventEmitter<number>();
+  @HostBinding('class.splt-horizontal') spltHorizontal: boolean;
+  @HostBinding('class.splt-vertical') spltVertical: boolean;
+  @HostBinding('class.splt-edge-left') spltEdgeLeft: boolean;
+  @HostBinding('class.splt-edge-right') spltEdgeRight: boolean;
   @HostBinding('style.backgroundColor') backgroundColor = '';
 
   private persistKey: string;
@@ -36,7 +40,7 @@ export class SplitterComponent implements OnInit {
   private isHovering = false;
   private isDragging = false;
 
-  constructor(private readonly elementRef: ElementRef) { }
+  constructor(private readonly elementRef: ElementRef) {}
 
   ngOnInit() {
     if (this.min === undefined || this.min <= 0) {
@@ -45,17 +49,25 @@ export class SplitterComponent implements OnInit {
     if (this.persistId) {
       this.persistKey = `\$\$splitter::${this.persistId}`;
     }
-    this.orientation =
-      this.edge === 'left' || this.edge === 'right' ? 'vertical' : 'horizontal';
-    this.classNames = `splt-${this.orientation} splt-edge-${this.edge}`;
+    this.orientation = this.edge === 'left' || this.edge === 'right' ? 'vertical' : 'horizontal';
+    this.spltHorizontal = this.orientation === 'horizontal';
+    this.spltVertical = this.orientation === 'vertical';
+    this.spltEdgeLeft = this.edge === 'left';
+    this.spltEdgeRight = this.edge === 'right';
     const getParentFn = () => $(this.elementRef.nativeElement).parent();
     if (this.orientation === 'vertical') {
       this.sizeGetterFn = () => getParentFn().width();
-      this.sizeSetterFn = size => getParentFn().width(size);
+      this.sizeSetterFn = size => {
+        getParentFn().width(size);
+        this.split.emit(size);
+      };
       this.clientXY = 'clientX';
     } else {
       this.sizeGetterFn = () => getParentFn().height();
-      this.sizeSetterFn = size => getParentFn().height(size);
+      this.sizeSetterFn = size => {
+        getParentFn().height(size);
+        this.split.emit(size);
+      };
       this.clientXY = 'clientY';
     }
     if (this.persistKey in localStorage) {
@@ -78,18 +90,18 @@ export class SplitterComponent implements OnInit {
     this.isDragging = true;
     this.showSplitter();
 
-    // tslint:disable-next-line
+    // tslint:disable-next-line: no-unused-expression
     new Dragger({
       downX: event.clientX,
       downY: event.clientY,
-      direction: (this.orientation === 'vertical') ? 'horizontal' : 'vertical',
-      draggingCursor: (this.orientation === 'vertical') ? 'col-resize' : 'row-resize',
+      direction: this.orientation === 'vertical' ? 'horizontal' : 'vertical',
+      draggingCursor: this.orientation === 'vertical' ? 'col-resize' : 'row-resize',
       onBeginDragFn: () => {
         this.isDragging = true;
         this.showSplitter();
       },
       onDragFn: (_, p) => {
-        const sign = (this.edge === 'left' || this.edge === 'top') ? -1 : 1;
+        const sign = this.edge === 'left' || this.edge === 'top' ? -1 : 1;
         const d = this.orientation === 'vertical' ? p.x : p.y;
         this.setSize(Math.max(this.min, downSize + sign * d));
       },

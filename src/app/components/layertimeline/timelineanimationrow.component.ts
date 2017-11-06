@@ -1,3 +1,5 @@
+import 'rxjs/add/operator/map';
+
 import {
   ChangeDetectionStrategy,
   Component,
@@ -5,11 +7,11 @@ import {
   Input,
   OnInit,
   Output,
-  ViewEncapsulation,
 } from '@angular/core';
-import { AnimationMap, ModelUtil } from 'app/scripts/common';
-import { Layer } from 'app/scripts/model/layers';
-import { Animation, AnimationBlock } from 'app/scripts/model/timeline';
+import { Layer } from 'app/model/layers';
+import { Animation, AnimationBlock } from 'app/model/timeline';
+import { ModelUtil } from 'app/scripts/common';
+import { ActionModeService } from 'app/services';
 import { State, Store } from 'app/store';
 import { getTimelineAnimationRowState } from 'app/store/common/selectors';
 import * as _ from 'lodash';
@@ -20,56 +22,64 @@ import { Observable } from 'rxjs/Observable';
   templateUrl: './timelineanimationrow.component.html',
   styleUrls: ['./timelineanimationrow.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  // TODO: remove ViewEncapsulation.
-  encapsulation: ViewEncapsulation.None,
 })
 export class TimelineAnimationRowComponent implements OnInit, Callbacks {
-
   animationRowModel$: Observable<AnimationRowModel>;
 
   @Input() layer: Layer;
-  @Input() animation: Layer;
 
   // MouseEvents from this layer (or children layers further down the tree)
   // are recursively handled by parent components until they reach
   // the LayerTimelineComponent.
-  @Output() onTimelineBlockClick = new EventEmitter<Event>();
-  @Output() onTimelineBlockMouseDown = new EventEmitter<Event>();
+  @Output() timelineBlockClick = new EventEmitter<AnimationRowEvent>();
+  @Output() timelineBlockMouseDown = new EventEmitter<AnimationRowEvent>();
+  @Output() timelineBlockDoubleClick = new EventEmitter<AnimationRowEvent>();
 
-  constructor(private readonly store: Store<State>) { }
+  constructor(
+    private readonly store: Store<State>,
+    private readonly actionModeService: ActionModeService,
+  ) {}
 
   ngOnInit() {
-    this.animationRowModel$ =
-      this.store.select(getTimelineAnimationRowState)
-        .map(({ animations, collapsedLayerIds, selectedBlockIds }) => {
-          const blocksByAnimationByPropertyValues =
-            _.values(ModelUtil.getBlocksByAnimationByProperty(this.layer.id, animations));
-          return {
-            blocksByAnimationByPropertyValues,
-            isExpanded: !collapsedLayerIds.has(this.layer.id),
-            selectedBlockIds,
-          };
-        });
+    this.animationRowModel$ = this.store
+      .select(getTimelineAnimationRowState)
+      .map(({ animation, collapsedLayerIds, selectedBlockIds, isActionMode }) => {
+        // Returns a list of animation block lists. Each animation block list corresponds to
+        // a property name displayed in the layer list tree.
+        const blocksByPropertyNameValues = _.values(
+          ModelUtil.getOrderedBlocksByPropertyByLayer(animation)[this.layer.id],
+        );
+        return {
+          animation,
+          blocksByPropertyNameValues,
+          isExpanded: !collapsedLayerIds.has(this.layer.id),
+          selectedBlockIds,
+          isActionMode,
+        };
+      });
   }
 
   // @Override Callbacks
-  timelineBlockClick(
-    event: MouseEvent,
-    block: AnimationBlock,
-    animation: Animation,
-    layer: Layer,
-  ) {
-    this.onTimelineBlockClick.emit({ event, block, animation, layer });
+  onTimelineBlockClick(event: MouseEvent, block: AnimationBlock) {
+    event.stopPropagation();
+    if (!this.actionModeService.isActionMode()) {
+      this.timelineBlockClick.emit({ event, block });
+    }
   }
 
   // @Override Callbacks
-  timelineBlockMouseDown(
-    event: MouseEvent,
-    block: AnimationBlock,
-    animation: Animation,
-    layer: Layer,
-  ) {
-    this.onTimelineBlockMouseDown.emit({ event, block, animation, layer });
+  onTimelineBlockDoubleClick(event: MouseEvent, block: AnimationBlock) {
+    event.stopPropagation();
+    if (!this.actionModeService.isActionMode()) {
+      this.timelineBlockDoubleClick.emit({ event, block });
+    }
+  }
+
+  // @Override Callbacks
+  onTimelineBlockMouseDown(event: MouseEvent, block: AnimationBlock) {
+    if (!this.actionModeService.isActionMode()) {
+      this.timelineBlockMouseDown.emit({ event, block });
+    }
   }
 
   // Used by *ngFor loop.
@@ -79,29 +89,20 @@ export class TimelineAnimationRowComponent implements OnInit, Callbacks {
 }
 
 export interface Callbacks {
-  timelineBlockMouseDown(
-    event: MouseEvent,
-    block: AnimationBlock,
-    animation: Animation,
-    layer: Layer,
-  );
-  timelineBlockClick(
-    event: MouseEvent,
-    block: AnimationBlock,
-    animation: Animation,
-    layer: Layer,
-  );
+  onTimelineBlockMouseDown(event: MouseEvent, block: AnimationBlock): void;
+  onTimelineBlockClick(event: MouseEvent, block: AnimationBlock): void;
+  onTimelineBlockDoubleClick(event: MouseEvent, block: AnimationBlock): void;
+}
+
+interface AnimationRowEvent {
+  readonly event: MouseEvent;
+  readonly block: AnimationBlock;
 }
 
 interface AnimationRowModel {
-  readonly blocksByAnimationByPropertyValues: AnimationMap<AnimationBlock[]>[];
-  readonly isExpanded: boolean;
-  readonly selectedBlockIds: Set<string>;
-}
-
-interface Event {
-  readonly event: MouseEvent;
-  readonly block: AnimationBlock;
   readonly animation: Animation;
-  readonly layer: Layer;
+  readonly blocksByPropertyNameValues: ReadonlyTable<AnimationBlock>;
+  readonly isExpanded: boolean;
+  readonly selectedBlockIds: ReadonlySet<string>;
+  readonly isActionMode: boolean;
 }

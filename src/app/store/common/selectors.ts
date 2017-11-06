@@ -1,70 +1,67 @@
-import { isActionMode } from '../actionmode/selectors';
+import { getActionMode, isActionMode } from 'app/store/actionmode/selectors';
 import {
   getCollapsedLayerIds,
   getHiddenLayerIds,
   getSelectedLayerIds,
   getVectorLayer,
-} from '../layers/selectors';
+} from 'app/store/layers/selectors';
+import { isBeingReset } from 'app/store/reset/selectors';
 import {
-  getActiveAnimation,
-  getActiveAnimationId,
-  getAnimations,
-  getSelectedAnimationIds,
+  getAnimation,
   getSelectedBlockIds,
   getSelectedBlockLayerIds,
-} from '../timeline/selectors';
-import { createStructuredSelector } from 'reselect';
+  getSingleSelectedPathBlock,
+  isAnimationSelected,
+} from 'app/store/timeline/selectors';
+import { createSelector, createStructuredSelector } from 'reselect';
 
-export const getCanvasLayersState =
-  createStructuredSelector({
-    vectorLayer: getVectorLayer,
-    hiddenLayerIds: getHiddenLayerIds,
-  });
+export const getCanvasOverlayState = createStructuredSelector({
+  hiddenLayerIds: getHiddenLayerIds,
+  selectedLayerIds: getSelectedLayerIds,
+  selectedBlockLayerIds: getSelectedBlockLayerIds,
+  isActionMode,
+});
 
-export const getCanvasOverlayState =
-  createStructuredSelector({
-    vectorLayer: getVectorLayer,
-    hiddenLayerIds: getHiddenLayerIds,
-    selectedLayerIds: getSelectedLayerIds,
-    isActionMode,
-    selectedBlockLayerIds: getSelectedBlockLayerIds,
-  });
+export const getPropertyInputState = createStructuredSelector({
+  animation: getAnimation,
+  isAnimationSelected,
+  selectedBlockIds: getSelectedBlockIds,
+  vectorLayer: getVectorLayer,
+  selectedLayerIds: getSelectedLayerIds,
+});
 
-export const getPropertyInputState =
-  createStructuredSelector({
-    animations: getAnimations,
-    selectedAnimationIds: getSelectedAnimationIds,
-    selectedBlockIds: getSelectedBlockIds,
-    vectorLayer: getVectorLayer,
-    selectedLayerIds: getSelectedLayerIds,
-  });
+export const getLayerListTreeState = createStructuredSelector({
+  animation: getAnimation,
+  selectedLayerIds: getSelectedLayerIds,
+  collapsedLayerIds: getCollapsedLayerIds,
+  hiddenLayerIds: getHiddenLayerIds,
+  isActionMode,
+});
 
-export const getLayerListTreeState =
-  createStructuredSelector({
-    animations: getAnimations,
-    selectedLayerIds: getSelectedLayerIds,
-    collapsedLayerIds: getCollapsedLayerIds,
-    hiddenLayerIds: getHiddenLayerIds,
-  });
+export const getTimelineAnimationRowState = createStructuredSelector({
+  animation: getAnimation,
+  collapsedLayerIds: getCollapsedLayerIds,
+  selectedBlockIds: getSelectedBlockIds,
+  isActionMode,
+});
 
-export const getTimelineAnimationRowState =
-  createStructuredSelector({
-    animations: getAnimations,
-    collapsedLayerIds: getCollapsedLayerIds,
-    selectedBlockIds: getSelectedBlockIds,
-  });
+export const getLayerTimelineState = createStructuredSelector({
+  animation: getAnimation,
+  vectorLayer: getVectorLayer,
+  isAnimationSelected,
+  selectedBlockIds: getSelectedBlockIds,
+  isBeingReset,
+  isActionMode,
+  actionMode: getActionMode,
+  singleSelectedPathBlock: getSingleSelectedPathBlock,
+});
 
-export const getLayerTimelineState =
-  createStructuredSelector({
-    animations: getAnimations,
-    vectorLayer: getVectorLayer,
-    selectedAnimationIds: getSelectedAnimationIds,
-    activeAnimationId: getActiveAnimationId,
-    selectedBlockIds: getSelectedBlockIds,
-  });
+export const getAnimatorState = createStructuredSelector({
+  animation: getAnimation,
+  vectorLayer: getVectorLayer,
+});
 
-export const getAnimatorState =
-  createStructuredSelector({
-    activeAnimation: getActiveAnimation,
-    vectorLayer: getVectorLayer,
-  });
+export const isWorkspaceDirty = createSelector(
+  [getVectorLayer, getAnimation],
+  (vl, anim) => vl.children.length > 0 || anim.blocks.length > 0,
+);

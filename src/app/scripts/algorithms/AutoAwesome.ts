@@ -1,82 +1,219 @@
-import {
-  MathUtil,
-  Point,
-} from '../common';
-import {
-  Command,
-  Path,
-  PathUtil,
-} from '../model/paths';
+// TODO: test stroked paths
+
+import { Command, Path, PathUtil } from 'app/model/paths';
+import { MathUtil } from 'app/scripts/common';
 import * as _ from 'lodash';
 
-// Needleman-Wunsch scoring function constants.
-const MATCH = 1;
-const MISMATCH = -1;
-const INDEL = 0;
+import { Alignment, MATCH, MISMATCH, align } from './NeedlemanWunsch';
+
+// POSSIBLE IMPROVEMENTS
+//
+// - Add additional points to both shapes first such that every segment longer than
+//   a certain distance is bisected. This may help reduce a bit of noise during alignment.
+// - Tweaking the placement of added points with simulated annealing.
+// - Using a cost function that factors in self-intersections at the halfway mark in
+//   addition to distance traveled.
+// - Use triangulation and/or Volonoi topology diagram in order to more accurately morph
+//   between SVGs with differing numbers of subpaths.
+//
+// Useful links/examples:
+// - Triangulation: https://goo.gl/Ug2pj9
+// - Jigsaw morphing: https://goo.gl/Za3akJ
+// - Voronoi topology: https://goo.gl/VNM7Tb
+// - Smoother polygon transitions: https://goo.gl/5njTsf
+// - Redistricting: https://goo.gl/sMkYEM
 
 /**
  * Takes two arbitrary paths, calculates a best-estimate alignment of the two,
  * and then inserts no-op commands into the alignment gaps to make the two paths
  * compatible with each other.
- *
- * TODO: this can still be optimized a lot... work in progress!
  */
-export function autoFix(
-  subIdx: number,
-  srcFromPath: Path,
-  srcToPath: Path) {
+export function autoFix(from: Path, to: Path): [Path, Path] {
+  [from, to] = autoUnconvertSubPaths(from, to);
+  [from, to] = autoAddCollapsingSubPaths(from, to);
+  [from, to] = orderSubPaths(from, to);
 
-  // Create and return a list of reversed and shifted paths to test.
-  // TODO: can this be optimized? (this essentially brute-forces all possible permutations)
-  const createFromCmdGroupsFn = (...paths: Path[]): Path[] => {
-    const fromPaths: Path[] = [];
-    for (const p of paths) {
-      fromPaths.push(p);
-      if (!p.getSubPath(subIdx).isClosed()) {
-        continue;
+  const min = Math.min(from.getSubPaths().length, to.getSubPaths().length);
+  for (let subIdx = 0; subIdx < min; subIdx++) {
+    // Pass the command with the larger subpath as the 'from' command.
+    const numFromCmds = from.getSubPath(subIdx).getCommands().length;
+    const numToCmds = to.getSubPath(subIdx).getCommands().length;
+    const shouldSwap = numFromCmds < numToCmds;
+    if (shouldSwap) {
+      [from, to] = [to, from];
+    }
+    [from, to] = alignSubPath(from, to, subIdx);
+    if (shouldSwap) {
+      [from, to] = [to, from];
+    }
+  }
+  for (let subIdx = 0; subIdx < min; subIdx++) {
+    [from, to] = permuteSubPath(from, to, subIdx);
+  }
+  return [from, to];
+}
+
+function autoUnconvertSubPaths(from: Path, to: Path) {
+  return [from, to].map(p => {
+    const pm = p.mutate();
+    p.getSubPaths().forEach((unused, subIdx) => pm.unconvertSubPath(subIdx));
+    return pm.build();
+  }) as [Path, Path];
+}
+
+export function autoAddCollapsingSubPaths(from: Path, to: Path): [Path, Path] {
+  const deleteCollapsingSubPathsFn = (p: Path) => {
+    return p.getSubPaths().some(s => s.isCollapsing())
+      ? p
+          .mutate()
+          .deleteCollapsingSubPaths()
+          .build()
+      : p;
+  };
+  from = deleteCollapsingSubPathsFn(from);
+  to = deleteCollapsingSubPathsFn(to);
+
+  const numFrom = from.getSubPaths().length;
+  const numTo = to.getSubPaths().length;
+  if (numFrom === numTo) {
+    return [from, to];
+  }
+  // TODO: allow the user to specify the location of collapsing paths?
+  const pm = (numFrom < numTo ? from : to).mutate();
+  for (let subIdx = Math.min(numFrom, numTo); subIdx < Math.max(numFrom, numTo); subIdx++) {
+    const opp = numFrom < numTo ? to : from;
+    const pole = opp.getPoleOfInaccessibility(subIdx);
+    pm.addCollapsingSubPath(pole, opp.getSubPath(subIdx).getCommands().length);
+  }
+  if (numFrom < numTo) {
+    from = pm.build();
+  } else {
+    to = pm.build();
+  }
+  return [from, to];
+}
+
+/**
+ * Reorders the subpaths in each path to minimize the distance each shape will
+ * travel during the morph.
+ */
+function orderSubPaths(from: Path, to: Path): [Path, Path] {
+  if (from.getSubPaths().length > 8 || to.getSubPaths().length > 8) {
+    // Don't attempt to order paths with many subpaths.
+    return [from, to];
+  }
+
+  const shouldSwap = from.getSubPaths().length < to.getSubPaths().length;
+  if (shouldSwap) {
+    [from, to] = [to, from];
+  }
+
+  const fromSubPaths = from.getSubPaths();
+  const toSubPaths = to.getSubPaths();
+
+  const distances = fromSubPaths.map((f, i) => {
+    return toSubPaths.map((t, j) => {
+      const pole1 = from.getPoleOfInaccessibility(i);
+      const pole2 = to.getPoleOfInaccessibility(j);
+      return MathUtil.distance(pole1, pole2);
+    });
+  });
+
+  let min = Infinity;
+  let best: number[] = [];
+
+  (function recurseFn(arr: number[], order: number[] = []) {
+    if (order.length === toSubPaths.length) {
+      let sum = 0;
+      for (let i = 0; i < order.length; i++) {
+        sum += distances[order[i]][i];
       }
-      const numFromCmds = p.getSubPaths()[subIdx].getCommands().length;
-      for (let i = 1; i < numFromCmds - 1; i++) {
-        fromPaths.push(p.mutate().shiftSubPathBack(subIdx, i).build());
+      if (sum < min) {
+        min = sum;
+        best = order;
+      }
+      return;
+    }
+    for (let i = 0; i < arr.length; i++) {
+      const [cur] = arr.splice(i, 1);
+      recurseFn([...arr], [...order, cur]);
+      if (arr.length) {
+        arr.splice(i, 0, cur);
       }
     }
-    return fromPaths;
-  };
+  })(_.range(fromSubPaths.length));
 
-  // TODO: experiment with this... need to test this more
-  // Approximate the centers of the start and end subpaths. We'll use this information
-  // to achieve a more accurate alignment score.
-  // const fromCenter = srcFromPath.getPoleOfInaccessibility(subIdx);
-  // const toCenter = srcToPath.getPoleOfInaccessibility(subIdx);
-  // const centerOffset = new Point(toCenter.x - fromCenter.x, toCenter.y - fromCenter.y);
+  const pm = from.mutate();
+  for (let i = 0; i < best.length; i++) {
+    const m = best[i];
+    pm.moveSubPath(m, i);
+    for (let j = i + 1; j < best.length; j++) {
+      const n = best[j];
+      if (n < m) {
+        best[j]++;
+      }
+    }
+  }
+  from = pm.build();
+
+  if (shouldSwap) {
+    [from, to] = [to, from];
+  }
+
+  return [from, to];
+}
+
+/** Aligns two paths using the Needleman-Wunsch algorithm. */
+function alignSubPath(from: Path, to: Path, subIdx: number): [Path, Path] {
+  // Create and return a list of reversed and shifted from paths to test.
+  // Each generated 'from path' will be aligned with the target 'to path'.
+  const fromPaths: ReadonlyArray<Path> = _.flatMap(
+    [
+      from,
+      from
+        .mutate()
+        .reverseSubPath(subIdx)
+        .build(),
+    ],
+    p => {
+      const paths = [p];
+      if (p.getSubPath(subIdx).isClosed()) {
+        for (let i = 1; i < p.getSubPath(subIdx).getCommands().length - 1; i++) {
+          // TODO: we need to find a way to reduce the number of paths to try.
+          paths.push(
+            p
+              .mutate()
+              .shiftSubPathBack(subIdx, i)
+              .build(),
+          );
+        }
+      }
+      return paths;
+    },
+  );
 
   // The scoring function to use to calculate the alignment. Convert-able
   // commands are considered matches. However, the farther away the points
   // are from each other, the lower the score.
-  const getScoreFn = (cmdA: Command, cmdB: Command) => {
-    if (cmdA.getSvgChar() !== cmdB.getSvgChar()
-      && !cmdA.canConvertTo(cmdB.getSvgChar())
-      && !cmdB.canConvertTo(cmdA.getSvgChar())) {
+  const getScoreFn = (a: Command, b: Command) => {
+    const charA = a.type;
+    const charB = b.type;
+    if (charA !== charB && !a.canConvertTo(charB) && !b.canConvertTo(charA)) {
       return MISMATCH;
     }
-    const { x, y } = cmdA.getEnd();
-    // TODO: experiment with this... need to test this more
-    // const start = new Point(x + centerOffset.x, y + centerOffset.y);
-    const start = new Point(x, y);
-    const end = cmdB.getEnd();
-    const distance = Math.max(MATCH, MathUtil.distance(start, end));
-    return 1 / distance;
+    const { x, y } = a.end;
+    const start = { x, y };
+    const end = b.end;
+    return 1 / Math.max(MATCH, MathUtil.distance(start, end));
   };
 
-  // Align each generated 'from path' with the target 'to path'.
-  const fromPaths =
-    createFromCmdGroupsFn(srcFromPath, srcFromPath.mutate()
-      .reverseSubPath(subIdx)
-      .build());
   const alignmentInfos = fromPaths.map(generatedFromPath => {
-    const fromCmds = generatedFromPath.getSubPaths()[subIdx].getCommands();
-    const toCmds = srcToPath.getSubPaths()[subIdx].getCommands();
-    return { generatedFromPath, alignment: align(fromCmds, toCmds, getScoreFn) };
+    const fromCmds = generatedFromPath.getSubPath(subIdx).getCommands();
+    const toCmds = to.getSubPath(subIdx).getCommands();
+    return {
+      generatedFromPath,
+      alignment: align(fromCmds, toCmds, getScoreFn),
+    };
   });
 
   // Find the alignment with the highest score.
@@ -86,13 +223,20 @@ export function autoFix(
     return prevScore > currScore ? prev : curr;
   });
 
+  interface CmdInfo {
+    readonly isGap: boolean;
+    readonly isNextGap: boolean;
+    readonly nextCmdIdx: number;
+  }
+
   // For each alignment, determine whether it and its neighbor is a gap.
-  interface CmdInfo { isGap: boolean; isNextGap: boolean; nextCmdIdx: number; }
-  const processAlignmentsFn = (alignments: Alignment<Command>[]) => {
+  const processAlignmentsFn = (
+    alignments: ReadonlyArray<Alignment<Command>>,
+  ): ReadonlyArray<CmdInfo> => {
     let nextCmdIdx = 0;
     return alignments.map((alignment, i) => {
       const isGap = !alignment.obj;
-      const isNextGap = (i + 1 < alignments.length) && !alignments[i + 1].obj;
+      const isNextGap = i + 1 < alignments.length && !alignments[i + 1].obj;
       if (!isGap) {
         nextCmdIdx++;
       }
@@ -105,9 +249,9 @@ export function autoFix(
 
   // Process each list of alignments. Each streak of gaps represents a series
   // of one or more splits we'll perform on the path.
-  const createGapStreaksFn = (cmdInfos: CmdInfo[]) => {
+  const createGapStreaksFn = (cmdInfos: ReadonlyArray<CmdInfo>) => {
     const gapStreaks: CmdInfo[][] = [];
-    let currentGapStreak = [];
+    let currentGapStreak: CmdInfo[] = [];
     for (const cmdInfo of cmdInfos) {
       if (cmdInfo.isGap) {
         currentGapStreak.push(cmdInfo);
@@ -117,22 +261,26 @@ export function autoFix(
         }
       }
     }
-    return gapStreaks;
+    return gapStreaks as ReadonlyTable<CmdInfo>;
   };
   const fromGapGroups = createGapStreaksFn(fromCmdInfos);
   const toGapGroups = createGapStreaksFn(toCmdInfos);
 
   // Fill in the gaps by applying linear subdivide batch splits.
-  const applySplitsFn = (path: Path, gapGroups: CmdInfo[][]) => {
-    const splitOps: { subIdx: number, cmdIdx: number, ts: number[] }[] = [];
-    const numPaths = path.getSubPaths()[subIdx].getCommands().length;
+  const applySplitsFn = (path: Path, gapGroups: ReadonlyTable<CmdInfo>) => {
+    const splitOps: Array<{
+      readonly subIdx: number;
+      readonly cmdIdx: number;
+      readonly ts: number[];
+    }> = [];
+    const numPaths = path.getSubPath(subIdx).getCommands().length;
     for (let i = gapGroups.length - 1; i >= 0; i--) {
       const gapGroup = gapGroups[i];
       // Clamp the index between 1 and numCommands - 1 to account for cases
       // where the alignment algorithm attempts to append new commands to the
       // front and back of the sequence.
-      const cmdIdx = MathUtil.clamp(_.last(gapGroup).nextCmdIdx, 1, numPaths - 1);
-      const ts = gapGroup.map((_, gapIdx) => (gapIdx + 1) / (gapGroup.length + 1));
+      const cmdIdx = _.clamp(_.last(gapGroup).nextCmdIdx, 1, numPaths - 1);
+      const ts = gapGroup.map((unused, gapIdx) => (gapIdx + 1) / (gapGroup.length + 1));
       splitOps.push({ subIdx, cmdIdx, ts });
     }
     PathUtil.sortPathOps(splitOps);
@@ -144,104 +292,90 @@ export function autoFix(
   };
 
   const fromPathResult = applySplitsFn(alignmentInfo.generatedFromPath, fromGapGroups);
-  const toPathResult = applySplitsFn(srcToPath, toGapGroups);
+  const toPathResult = applySplitsFn(to, toGapGroups);
 
   // Finally, convert the commands before returning the result.
-  return autoConvert(subIdx, fromPathResult, toPathResult);
+  return autoConvertSubPath(fromPathResult, toPathResult, subIdx);
 }
 
 /**
  * Takes two paths with an equal number of commands and makes them compatible
  * by converting each pair one-by-one.
  */
-export function autoConvert(
-  subIdx: number,
-  srcFromPath: Path,
-  srcToPath: Path) {
-
-  const fromCmds = srcFromPath.getSubPaths()[subIdx].getCommands();
-  const toCmds = srcToPath.getSubPaths()[subIdx].getCommands();
-  const fromMutator = srcFromPath.mutate();
-  const toMutator = srcToPath.mutate();
-  fromCmds.forEach((fromCmd, cmdIdx) => {
-    const toCmd = toCmds[cmdIdx];
-    if (fromCmd.getSvgChar() === toCmd.getSvgChar()) {
-      return;
-    }
-    if (fromCmd.canConvertTo(toCmd.getSvgChar())) {
-      fromMutator.convertCommand(subIdx, cmdIdx, toCmd.getSvgChar());
-    } else if (toCmd.canConvertTo(fromCmd.getSvgChar())) {
-      toMutator.convertCommand(subIdx, cmdIdx, fromCmd.getSvgChar());
-    }
-  });
-  return { from: fromMutator.build(), to: toMutator.build() };
+export function autoConvert(from: Path, to: Path): [Path, Path] {
+  [from, to] = autoUnconvertSubPaths(from, to);
+  const numFrom = from.getSubPaths().length;
+  const numTo = to.getSubPaths().length;
+  for (let subIdx = 0; subIdx < Math.min(numFrom, numTo); subIdx++) {
+    // Only auto convert when the number of commands in both canvases
+    // are equal. Otherwise we'll wait for the user to add more points.
+    [from, to] = autoConvertSubPath(from, to, subIdx);
+  }
+  return [from, to];
 }
 
-/** Represents either a valid object or an empty gap slot. */
-interface Alignment<T> {
-  obj?: T;
+function autoConvertSubPath(from: Path, to: Path, subIdx: number): [Path, Path] {
+  const numFrom = from.getSubPath(subIdx).getCommands().length;
+  const numTo = to.getSubPath(subIdx).getCommands().length;
+  if (numFrom !== numTo) {
+    // Only auto convert when the number of commands in both subpaths are equal.
+    return [from, to];
+  }
+  const fromPm = from.mutate();
+  const toPm = to.mutate();
+  for (let cmdIdx = 0; cmdIdx < numFrom; cmdIdx++) {
+    const fromCmd = from.getCommand(subIdx, cmdIdx);
+    const toCmd = to.getCommand(subIdx, cmdIdx);
+    if (fromCmd.type === toCmd.type) {
+      continue;
+    }
+    if (fromCmd.canConvertTo(toCmd.type)) {
+      fromPm.convertCommand(subIdx, cmdIdx, toCmd.type);
+    } else if (toCmd.canConvertTo(fromCmd.type)) {
+      toPm.convertCommand(subIdx, cmdIdx, fromCmd.type);
+    }
+  }
+  return [fromPm.build(), toPm.build()];
 }
 
-/**
- * Aligns two sequences of objects using the Needleman-Wunsch algorithm.
- */
-function align<T>(
-  from: ReadonlyArray<T>,
-  to: ReadonlyArray<T>,
-  scoringFunction: (t1: T, t2: T) => number) {
-
-  const listA: Alignment<T>[] = from.map(obj => { return { obj }; });
-  const listB: Alignment<T>[] = to.map(obj => { return { obj }; });
-  const alignedListA: Alignment<T>[] = [];
-  const alignedListB: Alignment<T>[] = [];
-
-  // Add dummy nodes at the first position of each list.
-  listA.unshift(undefined);
-  listB.unshift(undefined);
-
-  // Initialize the scoring matrix.
-  const matrix: number[][] = [];
-  for (let i = 0; i < listA.length; i++) {
-    const row = [];
-    for (let j = 0; j < listB.length; j++) {
-      row.push(i === 0 ? -j : j === 0 ? -i : 0);
-    }
-    matrix.push(row);
+function permuteSubPath(from: Path, to: Path, subIdx: number): [Path, Path] {
+  if (from.isClockwise(subIdx) !== to.isClockwise(subIdx)) {
+    // Make sure the paths share the same direction.
+    to = to
+      .mutate()
+      .reverseSubPath(subIdx)
+      .build();
   }
 
-  // Process the scoring matrix.
-  for (let i = 1; i < listA.length; i++) {
-    for (let j = 1; j < listB.length; j++) {
-      const match =
-        matrix[i - 1][j - 1] + scoringFunction(listA[i].obj, listB[j].obj);
-      const ins = matrix[i][j - 1] + INDEL;
-      const del = matrix[i - 1][j] + INDEL;
-      matrix[i][j] = Math.max(match, ins, del);
+  // Create and return a list of reversed and shifted from paths to test.
+  // Each generated 'from path' will be aligned with the target 'to path'.
+  const fromPaths: Path[] = [from];
+  if (from.getSubPath(subIdx).isClosed()) {
+    for (let i = 1; i < from.getSubPath(subIdx).getCommands().length - 1; i++) {
+      // TODO: we need to find a way to reduce the number of paths to try.
+      fromPaths.push(
+        from
+          .mutate()
+          .shiftSubPathBack(subIdx, i)
+          .build(),
+      );
     }
   }
 
-  // Backtracking.
-  let i = listA.length - 1;
-  let j = listB.length - 1;
-
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0
-      && matrix[i][j] === matrix[i - 1][j - 1]
-      + scoringFunction(listA[i].obj, listB[j].obj)) {
-      alignedListA.unshift(listA[i--]);
-      alignedListB.unshift(listB[j--]);
-    } else if (i > 0 && matrix[i][j] === matrix[i - 1][j] + INDEL) {
-      alignedListA.unshift(listA[i--]);
-      alignedListB.unshift({});
-    } else {
-      alignedListA.unshift({});
-      alignedListB.unshift(listB[j--]);
+  let bestFromPath = from;
+  let min = Infinity;
+  for (const fromPath of fromPaths) {
+    const fromCmds = fromPath.getSubPath(subIdx).getCommands();
+    let sumOfSquares = 0;
+    const toCmds = to.getSubPath(subIdx).getCommands();
+    fromCmds.forEach(
+      (c, cmdIdx) => (sumOfSquares += MathUtil.distance(c.end, toCmds[cmdIdx].end) ** 2),
+    );
+    if (sumOfSquares < min) {
+      min = sumOfSquares;
+      bestFromPath = fromPath;
     }
   }
 
-  return {
-    from: alignedListA,
-    to: alignedListB,
-    score: _.last(_.last(matrix)),
-  };
+  return [bestFromPath, to];
 }

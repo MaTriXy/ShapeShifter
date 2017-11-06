@@ -1,198 +1,148 @@
-import {
-  animate,
-  state,
-  style,
-  transition,
-  trigger,
-} from '@angular/animations';
-import {
-  ChangeDetectionStrategy,
-  Component,
-  OnInit,
-  ViewContainerRef,
-} from '@angular/core';
-import {
-  Http,
-  Response,
-} from '@angular/http';
-import { DialogService } from 'app/components/dialogs';
-import {
-  ActionMode,
-  ActionModeUtil,
-  ActionSource,
-  Selection,
-  SelectionType,
-} from 'app/scripts/model/actionmode';
-import {
-  MorphableLayer,
-  VectorLayer,
-} from 'app/scripts/model/layers';
-import { Animation } from 'app/scripts/model/timeline';
-import { PathAnimationBlock } from 'app/scripts/model/timeline';
-import { ActionModeService } from 'app/services/actionmode/actionmode.service';
-import { regenerateModelIds } from 'app/services/import/fileimport.service';
-import {
-  State,
-  Store,
-} from 'app/store';
+import 'rxjs/add/operator/combineLatest';
+import 'rxjs/add/operator/map';
+
+import { ChangeDetectionStrategy, Component, OnInit } from '@angular/core';
+import { ActionMode, ActionSource, Selection, SelectionType } from 'app/model/actionmode';
+import { MorphableLayer } from 'app/model/layers';
+import { PathAnimationBlock } from 'app/model/timeline';
+import { ActionModeUtil } from 'app/scripts/actionmode';
+import { ActionModeService, ThemeService } from 'app/services';
+import { State, Store } from 'app/store';
 import { getToolbarState } from 'app/store/actionmode/selectors';
-import { ResetWorkspace } from 'app/store/reset/metaactions';
-import { environment } from 'environments/environment';
+import { ThemeType } from 'app/store/theme/reducer';
 import * as _ from 'lodash';
 import { Observable } from 'rxjs/Observable';
 
-// TODO: add back google analytics stuff!
-// TODO: add back google analytics stuff!
-// TODO: add back google analytics stuff!
-// TODO: add back google analytics stuff!
-// TODO: add back google analytics stuff!
-//   ga('send', 'event', 'Export', 'Export click');
 declare const ga: Function;
-
-type ActionModeState = 'inactive' | 'active' | 'active_with_error';
-const INACTIVE = 'inactive';
-const ACTIVE = 'active';
-const ACTIVE_WITH_ERROR = 'active_with_error';
 
 @Component({
   selector: 'app-toolbar',
   templateUrl: './toolbar.component.html',
   styleUrls: ['./toolbar.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  animations: [
-    trigger('actionModeState', [
-      // Blue grey 500.
-      state(INACTIVE, style({ backgroundColor: '#607D8B' })),
-      // Blue A400.
-      state(ACTIVE, style({ backgroundColor: '#2979FF' })),
-      // Red 500.
-      state(ACTIVE_WITH_ERROR, style({ backgroundColor: '#F44336' })),
-      transition('* => *', animate('200ms ease-out')),
-    ]),
-  ],
 })
 export class ToolbarComponent implements OnInit {
-  readonly IS_DEV_BUILD = !environment.production;
-
   toolbarData$: Observable<ToolbarData>;
-  actionModeState$: Observable<ActionModeState>;
+  themeState$: Observable<{
+    prevThemeType: ThemeType;
+    currThemeType: ThemeType;
+    prevIsActionMode: boolean;
+    currIsActionMode: boolean;
+  }>;
 
   constructor(
     private readonly actionModeService: ActionModeService,
+    readonly themeService: ThemeService,
     private readonly store: Store<State>,
-    private readonly dialogService: DialogService,
-    private readonly viewContainerRef: ViewContainerRef,
-    private readonly http: Http,
-  ) { }
+  ) {}
 
   ngOnInit() {
+    let hasActionModeBeenEnabled = false;
+    let prevThemeType: ThemeType;
+    let currThemeType = this.themeService.getThemeType().themeType;
+    let prevIsActionMode: boolean;
+    let currIsActionMode = this.actionModeService.getActionMode() !== ActionMode.None;
     const toolbarState = this.store.select(getToolbarState);
-    this.toolbarData$ = toolbarState
-      .map(({ isActionMode, fromMl, toMl, mode, selections, unpairedSubPath, block }) => {
-        return new ToolbarData(
-          isActionMode, fromMl, toMl, mode, selections, unpairedSubPath, block);
-      });
-    this.actionModeState$ =
-      toolbarState.map(({ isActionMode, block }) => {
-        if (!isActionMode) {
-          return INACTIVE;
-        }
-        if (block.isAnimatable()) {
-          return ACTIVE;
-        }
-        return ACTIVE_WITH_ERROR;
-      });
+    this.toolbarData$ = toolbarState.map(
+      ({ mode, fromMl, toMl, selections, unpairedSubPath, block }) => {
+        return new ToolbarData(mode, fromMl, toMl, selections, unpairedSubPath, block);
+      },
+    );
+    this.themeState$ = Observable.combineLatest(
+      toolbarState,
+      this.themeService.asObservable().map(t => t.themeType),
+    ).map(([{ mode }, themeType]) => {
+      hasActionModeBeenEnabled = hasActionModeBeenEnabled || mode !== ActionMode.None;
+      prevThemeType = currThemeType;
+      currThemeType = themeType;
+      prevIsActionMode = currIsActionMode;
+      currIsActionMode = mode !== ActionMode.None;
+      return {
+        hasActionModeBeenEnabled,
+        prevThemeType,
+        currThemeType,
+        prevIsActionMode,
+        currIsActionMode,
+      };
+    });
   }
 
-  onAutoFixClick() {
-    ga('send', 'event', 'General', 'Auto fix click');
-
-    this.actionModeService.autoFixClick();
+  get darkTheme() {
+    return this.themeService.getThemeType().themeType === 'dark';
   }
 
-  onDemoClick() {
-    ga('send', 'event', 'Demos', 'Demos dialog shown');
-
-    // TODO: add demos here
-    // TODO: move this HTTP logic into a global service?
-    const demoMap = new Map<string, string>();
-    demoMap.set('Morphing animals', 'hippobuffalo');
-    demoMap.set('Visibility strike', 'visibilitystrike');
-    demoMap.set('Search-to-back', 'searchtoback');
-    demoMap.set('Bar chart', 'barchart');
-    demoMap.set('Search-to-close', 'searchtoclose');
-    const demoTitles = Array.from(demoMap.keys());
-    this.dialogService
-      .demo(this.viewContainerRef, demoTitles)
-      .subscribe(selectedDemoTitle => {
-        if (!demoTitles.includes(selectedDemoTitle)) {
-          return;
-        }
-        ga('send', 'event', 'Demos', 'Demo selected', selectedDemoTitle);
-        this.http.get(`demos/${demoMap.get(selectedDemoTitle)}.shapeshifter`)
-          .map((res: Response) => res.json())
-          .catch((error: any) => Observable.throw(error.json().error || 'Server error'))
-          .subscribe(jsonObj => {
-            // TODO: display snackbar if an error occurs?
-            // TODO: display snackbar when in offline mode
-            // TODO: show some sort of loader indicator to avoid blocking the UI thread?
-            let vl = new VectorLayer(jsonObj.vectorLayer);
-            let animations = jsonObj.animations.map(anim => new Animation(anim));
-            let hiddenLayerIds = new Set<string>(jsonObj.hiddenLayerIds);
-            const regeneratedModels = regenerateModelIds(vl, animations, hiddenLayerIds);
-            vl = regeneratedModels.vl;
-            animations = regeneratedModels.animations;
-            hiddenLayerIds = regeneratedModels.hiddenLayerIds;
-            this.store.dispatch(new ResetWorkspace(vl, animations, hiddenLayerIds));
-          });
-      });
+  set darkTheme(isDark: boolean) {
+    this.themeService.setTheme(isDark ? 'dark' : 'light');
   }
 
-  onSendFeedbackClick() {
+  onSendFeedbackClick(event: MouseEvent) {
     ga('send', 'event', 'Miscellaneous', 'Send feedback click');
   }
 
-  onAboutClick() {
-    ga('send', 'event', 'Miscellaneous', 'About click');
+  onContributeClick(event: MouseEvent) {
+    ga('send', 'event', 'Miscellaneous', 'Contribute click');
   }
 
-  onCloseActionModeClick() {
+  onGettingStartedClick(event: MouseEvent) {
+    ga('send', 'event', 'Miscellaneous', 'Getting started click');
+  }
+
+  onAutoFixClick(event: MouseEvent) {
+    ga('send', 'event', 'Action mode', 'Auto fix click');
+    event.stopPropagation();
+    this.actionModeService.autoFix();
+  }
+
+  onCloseActionModeClick(event: MouseEvent) {
+    event.stopPropagation();
     this.actionModeService.closeActionMode();
   }
 
-  onAddPointsClick() {
+  onAddPointsClick(event: MouseEvent) {
+    ga('send', 'event', 'Action mode', 'Add points');
+    event.stopPropagation();
     this.actionModeService.toggleSplitCommandsMode();
   }
 
-  onSplitSubPathsClick() {
+  onSplitSubPathsClick(event: MouseEvent) {
+    ga('send', 'event', 'Action mode', 'Split sub paths');
+    event.stopPropagation();
     this.actionModeService.toggleSplitSubPathsMode();
   }
 
-  onMorphSubPathsClick() {
-    this.actionModeService.toggleMorphSubPathsMode();
+  onPairSubPathsClick(event: MouseEvent) {
+    ga('send', 'event', 'Action mode', 'Pair sub paths');
+    event.stopPropagation();
+    this.actionModeService.togglePairSubPathsMode();
   }
 
-  onReversePointsClick() {
+  onReversePointsClick(event: MouseEvent) {
+    event.stopPropagation();
     this.actionModeService.reverseSelectedSubPaths();
   }
 
-  onShiftBackPointsClick() {
+  onShiftBackPointsClick(event: MouseEvent) {
+    event.stopPropagation();
     this.actionModeService.shiftBackSelectedSubPaths();
   }
 
-  onShiftForwardPointsClick() {
+  onShiftForwardPointsClick(event: MouseEvent) {
+    event.stopPropagation();
     this.actionModeService.shiftForwardSelectedSubPaths();
   }
 
-  onDeleteSubPathsClick() {
-    this.actionModeService.deleteSelections();
+  onDeleteSubPathsClick(event: MouseEvent) {
+    event.stopPropagation();
+    this.actionModeService.deleteSelectedActionModeModels();
   }
 
-  onDeleteSegmentsClick() {
-    this.actionModeService.deleteSelections();
+  onDeleteSegmentsClick(event: MouseEvent) {
+    event.stopPropagation();
+    this.actionModeService.deleteSelectedActionModeModels();
   }
 
-  onSetFirstPositionClick() {
+  onSetFirstPositionClick(event: MouseEvent) {
+    event.stopPropagation();
     this.actionModeService.shiftPointToFront();
   }
 
@@ -204,19 +154,21 @@ export class ToolbarComponent implements OnInit {
     }
   }
 
-  onSplitInHalfClick() {
-    this.actionModeService.splitInHalfClick();
+  onSplitInHalfClick(event: MouseEvent) {
+    event.stopPropagation();
+    this.actionModeService.splitSelectedPointInHalf();
   }
 
-  onDeletePointsClick() {
-    this.actionModeService.deleteSelections();
+  onDeletePointsClick(event: MouseEvent) {
+    event.stopPropagation();
+    this.actionModeService.deleteSelectedActionModeModels();
   }
 }
 
 class ToolbarData {
   private readonly subPaths: ReadonlyArray<number> = [];
-  private readonly segments: ReadonlyArray<{ subIdx: number, cmdIdx: number }> = [];
-  private readonly points: ReadonlyArray<{ subIdx: number, cmdIdx: number }> = [];
+  private readonly segments: ReadonlyArray<{ subIdx: number; cmdIdx: number }> = [];
+  private readonly points: ReadonlyArray<{ subIdx: number; cmdIdx: number }> = [];
   private readonly numSplitSubPaths: number;
   private readonly numSplitPoints: number;
   private readonly showSetFirstPosition: boolean;
@@ -225,16 +177,15 @@ class ToolbarData {
   private readonly isStroked: boolean;
   private readonly showSplitInHalf: boolean;
   private readonly unpairedSubPathSource: ActionSource;
-  private readonly showMorphSubPaths: boolean;
+  private readonly showPairSubPaths: boolean;
   private readonly morphableLayerName: string;
 
   constructor(
-    private readonly showActionMode: boolean,
-    readonly startMorphableLayer: MorphableLayer,
-    readonly endMorphableLayer: MorphableLayer,
-    public readonly mode: ActionMode,
-    public readonly selections: ReadonlyArray<Selection>,
-    readonly unpair: { source: ActionSource; subIdx: number; },
+    readonly mode: ActionMode,
+    startMorphableLayer: MorphableLayer,
+    endMorphableLayer: MorphableLayer,
+    readonly selections: ReadonlyArray<Selection>,
+    unpair: { source: ActionSource; subIdx: number },
     private readonly block: PathAnimationBlock | undefined,
   ) {
     // Precondition: assume all selections are for the same canvas type
@@ -251,29 +202,24 @@ class ToolbarData {
     const activePath = morphableLayer.pathData;
     this.isFilled = morphableLayer.isFilled();
     this.isStroked = morphableLayer.isStroked();
-    this.subPaths =
-      selections
-        .filter(s => s.type === SelectionType.SubPath)
-        .map(s => s.subIdx);
-    this.segments =
-      _.chain(selections)
-        .filter(s => {
-          const { subIdx, cmdIdx } = s;
-          return s.type === SelectionType.Segment
-            && morphableLayer.isFilled()
-            && activePath.getCommand(subIdx, cmdIdx).isSplitSegment();
-        })
-        .map(s => {
-          const { subIdx, cmdIdx } = s;
-          return { subIdx, cmdIdx };
-        })
-        .value();
-    this.points =
-      selections.filter(s => s.type === SelectionType.Point)
-        .map(s => {
-          const { subIdx, cmdIdx } = s;
-          return { subIdx, cmdIdx };
-        });
+    this.subPaths = selections.filter(s => s.type === SelectionType.SubPath).map(s => s.subIdx);
+    this.segments = selections
+      .filter(s => {
+        const { subIdx, cmdIdx } = s;
+        return (
+          s.type === SelectionType.Segment &&
+          morphableLayer.isFilled() &&
+          activePath.getCommand(subIdx, cmdIdx).isSplitSegment()
+        );
+      })
+      .map(s => {
+        const { subIdx, cmdIdx } = s;
+        return { subIdx, cmdIdx };
+      });
+    this.points = selections.filter(s => s.type === SelectionType.Point).map(s => {
+      const { subIdx, cmdIdx } = s;
+      return { subIdx, cmdIdx };
+    });
 
     this.numSplitSubPaths = _.sumBy(this.subPaths, subIdx => {
       return activePath.getSubPath(subIdx).isUnsplittable() ? 1 : 0;
@@ -282,26 +228,23 @@ class ToolbarData {
       const { subIdx, cmdIdx } = s;
       return activePath.getCommand(subIdx, cmdIdx).isSplitPoint() ? 1 : 0;
     });
-    this.showSetFirstPosition = this.points.length === 1
-      && this.points[0].cmdIdx
-      && activePath.getSubPath(this.points[0].subIdx).isClosed();
-    this.showShiftSubPath = this.subPaths.length > 0
-      && activePath.getSubPath(this.subPaths[0]).isClosed();
+    this.showSetFirstPosition =
+      this.points.length === 1 &&
+      this.points[0].cmdIdx &&
+      activePath.getSubPath(this.points[0].subIdx).isClosed();
+    this.showShiftSubPath =
+      this.subPaths.length > 0 && activePath.getSubPath(this.subPaths[0]).isClosed();
     this.showSplitInHalf = this.points.length === 1 && !!this.points[0].cmdIdx;
-    if (this.mode === ActionMode.MorphSubPaths) {
+    if (this.mode === ActionMode.PairSubPaths) {
       if (unpair) {
         this.unpairedSubPathSource = unpair.source;
       }
     }
-    if (startMorphableLayer.pathData.getSubPaths().length === 1
-      && endMorphableLayer.pathData.getSubPaths().length === 1) {
-      this.showMorphSubPaths = false;
-    } else {
-      this.showMorphSubPaths =
-        this.getNumSubPaths() === 1
-        || this.getNumSegments() > 0
-        || (!this.isSelectionMode());
-    }
+    this.showPairSubPaths =
+      startMorphableLayer.pathData.getSubPaths().length === 1 &&
+      endMorphableLayer.pathData.getSubPaths().length === 1
+        ? false
+        : this.getNumSubPaths() === 1 || this.getNumSegments() > 0 || !this.isSelectionMode();
   }
 
   getNumSelections() {
@@ -327,7 +270,7 @@ class ToolbarData {
     if (this.mode === ActionMode.SplitSubPaths) {
       return 'Split subpaths';
     }
-    if (this.mode === ActionMode.MorphSubPaths) {
+    if (this.mode === ActionMode.PairSubPaths) {
       return 'Pair subpaths';
     }
     const numSubPaths = this.getNumSubPaths();
@@ -342,27 +285,8 @@ class ToolbarData {
       return `${segStr} selected`;
     } else if (numPoints > 0) {
       return `${ptStr} selected`;
-    } else if (this.shouldShowActionMode()) {
-      const { areCompatible, errorPath, numPointsMissing } =
-        ActionModeUtil.checkPathsCompatible(this.block);
-      if (areCompatible) {
-        return 'Select something below to edit its properties';
-      } else {
-        const createSubtitleFn = (direction: string) => {
-          if (numPointsMissing === 1) {
-            return `Add 1 point to the subpath on the ${direction}`;
-          } else {
-            return `Add ${numPointsMissing} points to the subpath on the ${direction}`;
-          }
-        };
-        if (errorPath === ActionSource.From) {
-          return createSubtitleFn('left');
-        } else if (errorPath === ActionSource.To) {
-          return createSubtitleFn('right');
-        }
-        // This should never happen, but return empty string just to be safe.
-        return '';
-      }
+    } else if (this.mode === ActionMode.Selection) {
+      return 'Edit path morphing animation';
     }
     return 'Shape Shifter';
   }
@@ -376,22 +300,45 @@ class ToolbarData {
       } else if (this.isStroked) {
         return 'Click along the edge of a subpath to split it into 2';
       }
-    } else if (this.mode === ActionMode.MorphSubPaths) {
+    } else if (this.mode === ActionMode.PairSubPaths) {
       if (this.unpairedSubPathSource) {
         const toSourceDir = this.unpairedSubPathSource === ActionSource.From ? 'right' : 'left';
         return `Pair the selected subpath with a corresponding subpath on the ${toSourceDir}`;
       }
       return 'Select a subpath';
+    } else if (this.mode === ActionMode.Selection) {
+      const { areCompatible, errorPath, numPointsMissing } = ActionModeUtil.checkPathsCompatible(
+        this.block,
+      );
+      if (!areCompatible) {
+        const createSubtitleFn = (direction: string) => {
+          if (numPointsMissing === 1) {
+            return `Add 1 point to the highlighted subpath on the ${direction}`;
+          } else {
+            return `Add ${numPointsMissing} points to the highlighted subpath on the ${direction}`;
+          }
+        };
+        if (errorPath === ActionSource.From) {
+          return createSubtitleFn('left');
+        } else if (errorPath === ActionSource.To) {
+          return createSubtitleFn('right');
+        }
+        // This should never happen, but return empty string just to be safe.
+        return '';
+      }
+      if (!this.getNumSubPaths() && !this.getNumSegments() && !this.getNumPoints()) {
+        return 'Select something below to edit its properties';
+      }
     }
     return '';
   }
 
   shouldShowActionMode() {
-    return this.showActionMode;
+    return this.mode !== ActionMode.None;
   }
 
-  shouldShowMorphSubPaths() {
-    return this.showMorphSubPaths;
+  shouldShowPairSubPaths() {
+    return this.showPairSubPaths;
   }
 
   getNumSplitSubPaths() {
@@ -426,11 +373,11 @@ class ToolbarData {
     return this.mode === ActionMode.SplitSubPaths;
   }
 
-  isMorphSubPathsMode() {
-    return this.mode === ActionMode.MorphSubPaths;
+  isPairSubPathsMode() {
+    return this.mode === ActionMode.PairSubPaths;
   }
 
   shouldShowAutoFix() {
-    return this.shouldShowActionMode() && !this.getNumSelections();
+    return this.mode === ActionMode.Selection && !this.getNumSelections();
   }
 }

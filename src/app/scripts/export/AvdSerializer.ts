@@ -1,17 +1,9 @@
-import * as XmlSerializer from './XmlSerializer';
-import { INTERPOLATORS } from 'app/scripts/model/interpolators';
-import {
-  ClipPathLayer,
-  GroupLayer,
-  Layer,
-  PathLayer,
-  VectorLayer,
-} from 'app/scripts/model/layers';
-import {
-  Animation,
-  AnimationBlock,
-} from 'app/scripts/model/timeline';
+import { INTERPOLATORS } from 'app/model/interpolators';
+import { ClipPathLayer, GroupLayer, Layer, PathLayer, VectorLayer } from 'app/model/layers';
+import { Animation, AnimationBlock, PathAnimationBlock } from 'app/model/timeline';
 import * as _ from 'lodash';
+
+import * as XmlSerializer from './XmlSerializer';
 
 const XMLNS_NS = 'http://www.w3.org/2000/xmlns/';
 const ANDROID_NS = 'http://schemas.android.com/apk/res/android';
@@ -55,7 +47,8 @@ export function toAnimatedVectorDrawableXmlString(vl: VectorLayer, animation: An
 
   animBlocksByLayer.forEach((blocksForLayer, layerId) => {
     const targetNode = xmlDoc.createElement('target');
-    targetNode.setAttributeNS(ANDROID_NS, 'android:name', layerId);
+    const layer = vl.findLayerById(layerId);
+    targetNode.setAttributeNS(ANDROID_NS, 'android:name', layer.name);
     rootNode.appendChild(targetNode);
 
     const animationNode = xmlDoc.createElementNS(AAPT_NS, 'aapt:attr');
@@ -73,7 +66,6 @@ export function toAnimatedVectorDrawableXmlString(vl: VectorLayer, animation: An
       animationNode.appendChild(blockContainerNode);
     }
 
-    const layer = vl.findLayerById(layerId);
     const animatableProperties = layer.animatableProperties;
 
     blocksForLayer.forEach(block => {
@@ -84,8 +76,15 @@ export function toAnimatedVectorDrawableXmlString(vl: VectorLayer, animation: An
       blockNode.setAttributeNS(ANDROID_NS, 'android:propertyName', block.propertyName);
       conditionalAttr_(blockNode, 'android:startOffset', block.startTime, 0);
       conditionalAttr_(blockNode, 'android:duration', block.endTime - block.startTime);
-      conditionalAttr_(blockNode, 'android:valueFrom', block.fromValue);
-      conditionalAttr_(blockNode, 'android:valueTo', block.toValue);
+      if (block instanceof PathAnimationBlock) {
+        const fromPath = block.fromValue;
+        const toPath = block.toValue;
+        conditionalAttr_(blockNode, 'android:valueFrom', fromPath ? fromPath.getPathString() : '');
+        conditionalAttr_(blockNode, 'android:valueTo', toPath ? toPath.getPathString() : '');
+      } else {
+        conditionalAttr_(blockNode, 'android:valueFrom', block.fromValue);
+        conditionalAttr_(blockNode, 'android:valueTo', block.toValue);
+      }
       conditionalAttr_(
         blockNode,
         'android:valueType',
@@ -111,48 +110,52 @@ function vectorLayerToXmlNode(vl: VectorLayer, destinationNode, xmlDoc) {
   destinationNode.setAttributeNS(ANDROID_NS, 'android:viewportHeight', `${vl.height}`);
   conditionalAttr_(destinationNode, 'android:alpha', vl.alpha, 1);
 
-  walk(vl, (layer, parentNode) => {
-    if (layer instanceof VectorLayer) {
-      return parentNode;
-    } else if (layer instanceof PathLayer) {
-      const node = xmlDoc.createElement('path');
-      const path = layer.pathData;
-      conditionalAttr_(node, 'android:name', layer.name);
-      conditionalAttr_(node, 'android:pathData', path ? path.getPathString() : '');
-      conditionalAttr_(node, 'android:fillColor', layer.fillColor, '');
-      conditionalAttr_(node, 'android:fillAlpha', layer.fillAlpha, 1);
-      conditionalAttr_(node, 'android:strokeColor', layer.strokeColor, '');
-      conditionalAttr_(node, 'android:strokeAlpha', layer.strokeAlpha, 1);
-      conditionalAttr_(node, 'android:strokeWidth', layer.strokeWidth, 0);
-      conditionalAttr_(node, 'android:trimPathStart', layer.trimPathStart, 0);
-      conditionalAttr_(node, 'android:trimPathEnd', layer.trimPathEnd, 1);
-      conditionalAttr_(node, 'android:trimPathOffset', layer.trimPathOffset, 0);
-      conditionalAttr_(node, 'android:strokeLineCap', layer.strokeLinecap, 'butt');
-      conditionalAttr_(node, 'android:strokeLineJoin', layer.strokeLinejoin, 'miter');
-      conditionalAttr_(node, 'android:strokeMiterLimit', layer.strokeMiterLimit, 4);
-      parentNode.appendChild(node);
-      return parentNode;
-    } else if (layer instanceof ClipPathLayer) {
-      const node = xmlDoc.createElement('clip-path');
-      const path = layer.pathData;
-      conditionalAttr_(node, 'android:name', layer.name);
-      conditionalAttr_(node, 'android:pathData', path ? path.getPathString() : '');
-      parentNode.appendChild(node);
-      return parentNode;
-    } else if (layer instanceof GroupLayer) {
-      const node = xmlDoc.createElement('group');
-      conditionalAttr_(node, 'android:name', layer.name);
-      conditionalAttr_(node, 'android:pivotX', layer.pivotX, 0);
-      conditionalAttr_(node, 'android:pivotY', layer.pivotY, 0);
-      conditionalAttr_(node, 'android:translateX', layer.translateX, 0);
-      conditionalAttr_(node, 'android:translateY', layer.translateY, 0);
-      conditionalAttr_(node, 'android:scaleX', layer.scaleX, 1);
-      conditionalAttr_(node, 'android:scaleY', layer.scaleY, 1);
-      conditionalAttr_(node, 'android:rotation', layer.rotation, 0);
-      parentNode.appendChild(node);
-      return node;
-    }
-  }, destinationNode);
+  walk(
+    vl,
+    (layer, parentNode) => {
+      if (layer instanceof VectorLayer) {
+        return parentNode;
+      } else if (layer instanceof PathLayer) {
+        const node = xmlDoc.createElement('path');
+        const path = layer.pathData;
+        conditionalAttr_(node, 'android:name', layer.name);
+        conditionalAttr_(node, 'android:pathData', path ? path.getPathString() : '');
+        conditionalAttr_(node, 'android:fillColor', layer.fillColor, '');
+        conditionalAttr_(node, 'android:fillAlpha', layer.fillAlpha, 1);
+        conditionalAttr_(node, 'android:strokeColor', layer.strokeColor, '');
+        conditionalAttr_(node, 'android:strokeAlpha', layer.strokeAlpha, 1);
+        conditionalAttr_(node, 'android:strokeWidth', layer.strokeWidth, 0);
+        conditionalAttr_(node, 'android:trimPathStart', layer.trimPathStart, 0);
+        conditionalAttr_(node, 'android:trimPathEnd', layer.trimPathEnd, 1);
+        conditionalAttr_(node, 'android:trimPathOffset', layer.trimPathOffset, 0);
+        conditionalAttr_(node, 'android:strokeLineCap', layer.strokeLinecap, 'butt');
+        conditionalAttr_(node, 'android:strokeLineJoin', layer.strokeLinejoin, 'miter');
+        conditionalAttr_(node, 'android:strokeMiterLimit', layer.strokeMiterLimit, 4);
+        parentNode.appendChild(node);
+        return parentNode;
+      } else if (layer instanceof ClipPathLayer) {
+        const node = xmlDoc.createElement('clip-path');
+        const path = layer.pathData;
+        conditionalAttr_(node, 'android:name', layer.name);
+        conditionalAttr_(node, 'android:pathData', path ? path.getPathString() : '');
+        parentNode.appendChild(node);
+        return parentNode;
+      } else if (layer instanceof GroupLayer) {
+        const node = xmlDoc.createElement('group');
+        conditionalAttr_(node, 'android:name', layer.name);
+        conditionalAttr_(node, 'android:pivotX', layer.pivotX, 0);
+        conditionalAttr_(node, 'android:pivotY', layer.pivotY, 0);
+        conditionalAttr_(node, 'android:translateX', layer.translateX, 0);
+        conditionalAttr_(node, 'android:translateY', layer.translateY, 0);
+        conditionalAttr_(node, 'android:scaleX', layer.scaleX, 1);
+        conditionalAttr_(node, 'android:scaleY', layer.scaleY, 1);
+        conditionalAttr_(node, 'android:rotation', layer.rotation, 0);
+        parentNode.appendChild(node);
+        return node;
+      }
+    },
+    destinationNode,
+  );
 }
 
 function conditionalAttr_(node, attr, value, skipValue?) {

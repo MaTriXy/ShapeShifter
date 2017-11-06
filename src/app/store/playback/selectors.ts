@@ -1,4 +1,4 @@
-import { getAppState } from '../selectors';
+import { getAppState } from 'app/store/selectors';
 import { createSelector } from 'reselect';
 
 export const getPlaybackState = createSelector(getAppState, s => s.playback);

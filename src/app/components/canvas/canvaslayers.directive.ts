@@ -1,38 +1,22 @@
-import 'rxjs/add/observable/combineLatest';
+import 'rxjs/add/observable/merge';
+import 'rxjs/add/operator/map';
+import 'rxjs/add/operator/first';
 
-import {
-  CanvasLayoutMixin,
-  Size,
-} from './CanvasLayoutMixin';
-import * as CanvasUtil from './CanvasUtil';
-import {
-  AfterViewInit,
-  Directive,
-  ElementRef,
-  Input,
-} from '@angular/core';
-import { ColorUtil } from 'app/scripts/common';
+import { AfterViewInit, Directive, ElementRef, Input } from '@angular/core';
+import { ActionSource } from 'app/model/actionmode';
+import { ClipPathLayer, Layer, LayerUtil, PathLayer, VectorLayer } from 'app/model/layers';
+import { PathUtil } from 'app/model/paths';
+import { ColorUtil, Matrix } from 'app/scripts/common';
 import { DestroyableMixin } from 'app/scripts/mixins';
-import { ActionSource } from 'app/scripts/model/actionmode';
-import {
-  ClipPathLayer,
-  Layer,
-  LayerUtil,
-  PathLayer,
-  VectorLayer,
-} from 'app/scripts/model/layers';
-import { AnimatorService } from 'app/services/animator/animator.service';
-import {
-  State,
-  Store,
-} from 'app/store';
-import {
-  getActionModeEndState,
-  getActionModeStartState,
-} from 'app/store/actionmode/selectors';
-import { getCanvasLayersState } from 'app/store/common/selectors';
+import { AnimatorService } from 'app/services';
+import { State, Store } from 'app/store';
+import { getActionModeEndState, getActionModeStartState } from 'app/store/actionmode/selectors';
+import { getHiddenLayerIds, getVectorLayer } from 'app/store/layers/selectors';
 import * as $ from 'jquery';
 import { Observable } from 'rxjs/Observable';
+
+import { CanvasLayoutMixin, Size } from './CanvasLayoutMixin';
+import * as CanvasUtil from './CanvasUtil';
 
 type Context = CanvasRenderingContext2D;
 
@@ -40,33 +24,23 @@ type Context = CanvasRenderingContext2D;
  * Directive that draws the current vector layer to the canvas.
  */
 @Directive({ selector: '[appCanvasLayers]' })
-export class CanvasLayersDirective
-  extends CanvasLayoutMixin(DestroyableMixin())
+export class CanvasLayersDirective extends CanvasLayoutMixin(DestroyableMixin())
   implements AfterViewInit {
-
   @Input() actionSource: ActionSource;
 
-  private readonly $renderingCanvas: JQuery;
-  private readonly $offscreenCanvas: JQuery;
+  private readonly $renderingCanvas: JQuery<HTMLCanvasElement>;
+  private readonly $offscreenCanvas: JQuery<HTMLCanvasElement>;
   private vectorLayer: VectorLayer;
-  private hiddenLayerIds = new Set<string>();
+  private hiddenLayerIds: ReadonlySet<string> = new Set<string>();
 
   constructor(
-    readonly elementRef: ElementRef,
+    elementRef: ElementRef,
     private readonly animatorService: AnimatorService,
     private readonly store: Store<State>,
   ) {
     super();
-    this.$renderingCanvas = $(elementRef.nativeElement);
-    this.$offscreenCanvas = $(document.createElement('canvas'));
-  }
-
-  private get renderingCtx() {
-    return (this.$renderingCanvas.get(0) as HTMLCanvasElement).getContext('2d');
-  }
-
-  private get offscreenCtx() {
-    return (this.$offscreenCanvas.get(0) as HTMLCanvasElement).getContext('2d');
+    this.$renderingCanvas = $(elementRef.nativeElement) as JQuery<HTMLCanvasElement>;
+    this.$offscreenCanvas = $(document.createElement('canvas')) as JQuery<HTMLCanvasElement>;
   }
 
   ngAfterViewInit() {
@@ -74,37 +48,46 @@ export class CanvasLayersDirective
       // Preview canvas specific setup.
       this.registerSubscription(
         Observable.combineLatest(
-          this.animatorService.asObservable().map(event => event.vl),
-          this.store.select(getCanvasLayersState),
-        ).subscribe(([animatedVl, { vectorLayer, hiddenLayerIds }]) => {
-          this.vectorLayer = animatedVl || vectorLayer;
+          Observable.merge(
+            this.animatorService.asObservable().map(event => event.vl),
+            this.store.select(getVectorLayer),
+          ),
+          this.store.select(getHiddenLayerIds),
+        ).subscribe(([vectorLayer, hiddenLayerIds]) => {
+          this.vectorLayer = vectorLayer;
           this.hiddenLayerIds = hiddenLayerIds;
           this.draw();
-        }));
+        }),
+      );
     } else {
       // Start & end canvas specific setup.
       const actionModeSelector =
-        this.actionSource === ActionSource.From
-          ? getActionModeStartState
-          : getActionModeEndState;
+        this.actionSource === ActionSource.From ? getActionModeStartState : getActionModeEndState;
       this.registerSubscription(
-        this.store.select(actionModeSelector)
-          .subscribe(({ vectorLayer }) => {
-            this.vectorLayer = vectorLayer;
-            this.draw();
-          }),
+        this.store.select(actionModeSelector).subscribe(({ vectorLayer, hiddenLayerIds }) => {
+          this.vectorLayer = vectorLayer;
+          this.hiddenLayerIds = hiddenLayerIds;
+          this.draw();
+        }),
       );
     }
+  }
+
+  private get renderingCtx() {
+    return this.$renderingCanvas.get(0).getContext('2d');
+  }
+
+  private get offscreenCtx() {
+    return this.$offscreenCanvas.get(0).getContext('2d');
   }
 
   // @Override
   onDimensionsChanged(bounds: Size, viewport: Size) {
     const { w, h } = this.getViewport();
-    [this.$renderingCanvas, this.$offscreenCanvas]
-      .forEach(canvas => {
-        canvas.attr({ width: w * this.attrScale, height: h * this.attrScale });
-        canvas.css({ width: w * this.cssScale, height: h * this.cssScale });
-      });
+    [this.$renderingCanvas, this.$offscreenCanvas].forEach(canvas => {
+      canvas.attr({ width: w * this.attrScale, height: h * this.attrScale });
+      canvas.css({ width: w * this.cssScale, height: h * this.cssScale });
+    });
     this.draw();
   }
 
@@ -123,6 +106,10 @@ export class CanvasLayersDirective
 
     this.renderingCtx.save();
     setupCtxWithViewportCoordsFn(this.renderingCtx);
+    if (this.vectorLayer.canvasColor) {
+      this.renderingCtx.fillStyle = ColorUtil.androidToCssRgbaColor(this.vectorLayer.canvasColor);
+      this.renderingCtx.fillRect(0, 0, this.vectorLayer.width, this.vectorLayer.height);
+    }
 
     const currentAlpha = this.vectorLayer ? this.vectorLayer.alpha : 1;
     if (currentAlpha < 1) {
@@ -131,7 +118,7 @@ export class CanvasLayersDirective
     }
 
     // If the canvas is disabled, draw the layer to an offscreen canvas
-    // so that we can draw it translucently w/ o affecting the rest of
+    // so that we can draw it translucently w/o affecting the rest of
     // the layer's appearance.
     const layerCtx = currentAlpha < 1 ? this.offscreenCtx : this.renderingCtx;
     this.drawLayer(this.vectorLayer, this.vectorLayer, layerCtx);
@@ -166,7 +153,7 @@ export class CanvasLayersDirective
     if (!layer.pathData || !layer.pathData.getCommands().length) {
       return;
     }
-    const flattenedTransform = LayerUtil.getFlattenedTransformForLayer(vl, layer.id);
+    const flattenedTransform = LayerUtil.getCanvasTransformForLayer(vl, layer.id);
     CanvasUtil.executeCommands(ctx, layer.pathData.getCommands(), flattenedTransform);
     ctx.clip();
   }
@@ -177,10 +164,12 @@ export class CanvasLayersDirective
     }
     ctx.save();
 
-    const flattenedTransform = LayerUtil.getFlattenedTransformForLayer(vl, layer.id);
-    CanvasUtil.executeCommands(ctx, layer.pathData.getCommands(), flattenedTransform);
+    const canvasTransforms = LayerUtil.getCanvasTransformsForLayer(vl, layer.id);
+    const canvasTransform = Matrix.flatten(canvasTransforms);
+    const flattenedTransform = Matrix.flatten(canvasTransforms.slice().reverse());
+    CanvasUtil.executeCommands(ctx, layer.pathData.getCommands(), canvasTransform);
 
-    const strokeWidthMultiplier = flattenedTransform.getScale();
+    const strokeWidthMultiplier = flattenedTransform.getScaleFactor();
     ctx.strokeStyle = ColorUtil.androidToCssRgbaColor(layer.strokeColor, layer.strokeAlpha);
     ctx.lineWidth = layer.strokeWidth * strokeWidthMultiplier;
     ctx.fillStyle = ColorUtil.androidToCssRgbaColor(layer.fillColor, layer.fillAlpha);
@@ -188,47 +177,40 @@ export class CanvasLayersDirective
     ctx.lineJoin = layer.strokeLinejoin;
     ctx.miterLimit = layer.strokeMiterLimit;
 
-    if (layer.trimPathStart !== 0
-      || layer.trimPathEnd !== 1
-      || layer.trimPathOffset !== 0) {
+    if (layer.trimPathStart !== 0 || layer.trimPathEnd !== 1 || layer.trimPathOffset !== 0) {
       const { a, d } = flattenedTransform;
+      // Note that we only return the length of the first sub path due to
+      // https://code.google.com/p/android/issues/detail?id=172547
       let pathLength: number;
-      if (a !== 1 || d !== 1) {
+      if (Math.abs(a) !== 1 || Math.abs(d) !== 1) {
         // Then recompute the scaled path length.
-        pathLength = layer.pathData.mutate()
-          .addTransforms([flattenedTransform])
+        pathLength = layer.pathData
+          .mutate()
+          .transform(flattenedTransform)
           .build()
-          .getPathLength();
+          .getSubPathLength(0);
       } else {
-        pathLength = layer.pathData.getPathLength();
+        pathLength = layer.pathData.getSubPathLength(0);
       }
 
-      // Calculate the visible fraction of the trimmed path. If trimPathStart
-      // is greater than trimPathEnd, then the result should be the combined
-      // length of the two line segments: [trimPathStart,1] and [0,trimPathEnd].
-      let shownFraction = layer.trimPathEnd - layer.trimPathStart;
-      if (layer.trimPathStart > layer.trimPathEnd) {
-        shownFraction += 1;
-      }
-      // Calculate the dash array. The first array element is the length of
-      // the trimmed path and the second element is the gap, which is the
-      // difference in length between the total path length and the visible
-      // trimmed path length.
-      ctx.setLineDash([
-        shownFraction * pathLength,
-        (1 - shownFraction + 0.001) * pathLength,
-      ]);
-      // The amount to offset the path is equal to the trimPathStart plus
-      // trimPathOffset. We mod the result because the trimmed path
-      // should wrap around once it reaches 1.
-      ctx.lineDashOffset = pathLength
-        * (1 - ((layer.trimPathStart + layer.trimPathOffset) % 1));
+      const strokeDashArray = PathUtil.toStrokeDashArray(
+        layer.trimPathStart,
+        layer.trimPathEnd,
+        layer.trimPathOffset,
+        pathLength,
+      );
+      const strokeDashOffset = PathUtil.toStrokeDashOffset(
+        layer.trimPathStart,
+        layer.trimPathEnd,
+        layer.trimPathOffset,
+        pathLength,
+      );
+      ctx.setLineDash(strokeDashArray);
+      ctx.lineDashOffset = strokeDashOffset;
     } else {
       ctx.setLineDash([]);
     }
-    if (layer.isStroked()
-      && layer.strokeWidth
-      && layer.trimPathStart !== layer.trimPathEnd) {
+    if (layer.isStroked() && layer.strokeWidth && layer.trimPathStart !== layer.trimPathEnd) {
       ctx.stroke();
     }
     if (layer.isFilled()) {

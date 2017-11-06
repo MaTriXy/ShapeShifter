@@ -1,9 +1,11 @@
 /* tslint:disable */
 
 import * as SAX from 'sax';
+
+import { CSSStyleDeclaration } from './css-style-declaration';
 import { JSAPI } from './jsAPI';
 
-var entityDeclaration = /<!ENTITY\s+(\S+)\s+(?:'([^\']+)'|"([^\"]+)")\s*>/g;
+const entityDeclaration = /<!ENTITY\s+(\S+)\s+(?:'([^\']+)'|"([^\"]+)")\s*>/g;
 
 var config = {
   strict: true,
@@ -11,7 +13,7 @@ var config = {
   normalize: true,
   lowercase: true,
   xmlns: true,
-  position: true
+  position: true,
 };
 
 /**
@@ -20,9 +22,9 @@ var config = {
  * @param {String} data input data
  * @param {Function} callback
  */
-export function svgToJs(data, callback) {
+export function svg2js(data, callback) {
   var sax = SAX.parser(config.strict, config),
-    root = new (JSAPI as any)({ elem: '#document' }),
+    root = new JSAPI({ elem: '#document' }, undefined),
     current = root,
     stack = [root],
     textContext = null,
@@ -30,13 +32,15 @@ export function svgToJs(data, callback) {
 
   function pushToContent(content) {
     content = new JSAPI(content, current);
+
     (current.content = current.content || []).push(content);
+
     return content;
   }
 
-  sax.ondoctype = function (doctype) {
+  sax.ondoctype = function(doctype) {
     pushToContent({
-      doctype: doctype
+      doctype: doctype,
     });
 
     var subsetStart = doctype.indexOf('['),
@@ -51,40 +55,46 @@ export function svgToJs(data, callback) {
     }
   };
 
-  sax.onprocessinginstruction = function (data) {
+  sax.onprocessinginstruction = function(data) {
     pushToContent({
-      processinginstruction: data
+      processinginstruction: data,
     });
   };
 
-  sax.oncomment = function (comment) {
+  sax.oncomment = function(comment) {
     pushToContent({
-      comment: comment.trim()
+      comment: comment.trim(),
     });
   };
 
-  sax.oncdata = function (cdata) {
+  sax.oncdata = function(cdata) {
     pushToContent({
-      cdata: cdata
+      cdata: cdata,
     });
   };
 
-  sax.onopentag = function (data) {
+  sax.onopentag = function(data) {
     var elem: any = {
       elem: data.name,
       prefix: data.prefix,
-      local: data.local
+      local: data.local,
     };
+    elem.style = new CSSStyleDeclaration(elem);
 
     if (Object.keys(data.attributes).length) {
       elem.attrs = {};
 
       for (var name in data.attributes) {
+        if (name === 'style') {
+          // has style attribute
+          elem.style.hasStyle();
+        }
+
         elem.attrs[name] = {
           name: name,
           value: data.attributes[name].value,
           prefix: data.attributes[name].prefix,
-          local: data.attributes[name].local
+          local: data.attributes[name].local,
         };
       }
     }
@@ -96,20 +106,21 @@ export function svgToJs(data, callback) {
     if (data.name == 'text' && !data.prefix) {
       textContext = current;
     }
+
     stack.push(elem);
   };
 
-  sax.ontext = function (text) {
+  sax.ontext = function(text) {
     if (/\S/.test(text) || textContext) {
-      if (!textContext)
-        text = text.trim();
+      if (!textContext) text = text.trim();
+
       pushToContent({
-        text: text
+        text: text,
       });
     }
   };
 
-  sax.onclosetag = function () {
+  sax.onclosetag = function() {
     var last = stack.pop();
 
     // Trim text inside <text> tag.
@@ -120,14 +131,14 @@ export function svgToJs(data, callback) {
     current = stack[stack.length - 1];
   };
 
-  sax.onerror = function (e) {
+  sax.onerror = function(e) {
     e.message = 'Error in parsing SVG: ' + e.message;
     if (e.message.indexOf('Unexpected end') < 0) {
       throw e;
     }
   };
 
-  sax.onend = function () {
+  sax.onend = function() {
     if (!this.error) {
       callback(root);
     } else {
@@ -145,12 +156,16 @@ export function svgToJs(data, callback) {
 
   function trim(elem) {
     if (!elem.content) return elem;
+
     var start = elem.content[0],
       end = elem.content[elem.content.length - 1];
+
     while (start && start.content && !start.text) start = start.content[0];
     if (start && start.text) start.text = start.text.replace(/^\s+/, '');
+
     while (end && end.content && !end.text) end = end.content[end.content.length - 1];
     if (end && end.text) end.text = end.text.replace(/\s+$/, '');
+
     return elem;
   }
-};
+}

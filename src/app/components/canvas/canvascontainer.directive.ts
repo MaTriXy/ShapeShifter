@@ -1,22 +1,16 @@
-import {
-  CanvasLayoutMixin,
-  Size,
-} from './CanvasLayoutMixin';
-import {
-  Directive,
-  ElementRef,
-} from '@angular/core';
+import { Directive, ElementRef } from '@angular/core';
 import * as $ from 'jquery';
+
+import { CanvasLayoutMixin, Size } from './CanvasLayoutMixin';
 
 /**
  * Directive that resizes the canvas container when necessary.
  */
 @Directive({ selector: '[appCanvasContainer]' })
 export class CanvasContainerDirective extends CanvasLayoutMixin() {
-
   private readonly element: JQuery;
 
-  constructor(readonly elementRef: ElementRef) {
+  constructor(elementRef: ElementRef) {
     super();
     this.element = $(elementRef.nativeElement);
   }

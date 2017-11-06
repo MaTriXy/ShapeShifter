@@ -1,10 +1,8 @@
 /* tslint:disable */
 
-import 'jasmine';
-
-import { jsToSvg } from './lib/js2svg';
+import { js2svg } from './lib/js2svg';
 import { executePlugins } from './lib/plugins';
-import { svgToJs } from './lib/svg2js';
+import { svg2js } from './lib/svg2js';
 import { cleanupNumericValues } from './plugins/cleanupNumericValues';
 import { collapseGroups } from './plugins/collapseGroups';
 import { convertPathData } from './plugins/convertPathData';
@@ -625,22 +623,25 @@ describe('SVGO plugins', () => {
   describe('inlineStyles', () => {
     it('#xxx', () => {
       runTest(inlineStyles, `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 258.12 225.88">
-  <style>
-    .cls-7 {
-      only-cls-7: 1;
-    }
-    .cls-7,
-    .cls-8 {
-      cls-7-and-8: 1;
-    }
-  </style>
-  <path class="cls-7"/>
-  <path d="M172.44 18.6c6.51-4.94 13 3.16 13 3.16l-14.57 10.09s-7.02-6.77 1.57-13.25z" class="cls-8"/>
+<svg xmlns="http://www.w3.org/2000/svg" id="dark" viewBox="0 0 258.12 225.88">
+<!-- for https://github.com/svg/svgo/pull/592#issuecomment-266327016 -->
+    <style>
+        .cls-7 {
+            only-cls-7: 1;
+        }
+        .cls-7,
+        .cls-8 {
+            cls-7-and-8: 1;
+        }
+    </style>
+
+    <path class="cls-7"/>
+    <path d="M172.44 18.6c6.51-4.94 13 3.16 13 3.16l-14.57 10.09s-7.02-6.77 1.57-13.25z" class="cls-8"/>
 </svg>
 `, `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 258.12 225.88">
-    <path class="cls-7" style="only-cls-7:1;cls-7-and-8:1"/>
+<svg xmlns="http://www.w3.org/2000/svg" id="dark" viewBox="0 0 258.12 225.88">
+<!--for https://github.com/svg/svgo/pull/592#issuecomment-266327016-->
+    <path class="cls-7" style="cls-7-and-8:1;only-cls-7:1"/>
     <path d="M172.44 18.6c6.51-4.94 13 3.16 13 3.16l-14.57 10.09s-7.02-6.77 1.57-13.25z" class="cls-8" style="cls-7-and-8:1"/>
 </svg>`);
     });
@@ -1035,13 +1036,13 @@ const batchedSvgoPlugins = plugin => {
 };
 
 function optimize(svgText: string, plugin, callback: (optimizedSvgText: string) => void) {
-  svgToJs(svgText, svgJs => {
+  svg2js(svgText, svgJs => {
     if (svgJs.error) {
       console.warn('Failed to parse the specified SVG string.');
       callback(svgText);
       return;
     }
-    callback(jsToSvg(executePlugins(svgJs, batchedSvgoPlugins(plugin)), {
+    callback(js2svg(executePlugins(svgJs, batchedSvgoPlugins(plugin)), {
       indent: '    ',
       pretty: true,
     }).data);

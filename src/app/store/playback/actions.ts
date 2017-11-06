@@ -1,4 +1,4 @@
-import { Action } from '@ngrx/store';
+import { Action } from 'app/store/ngrx';
 
 export const SET_IS_SLOW_MOTION = '__playback__SET_IS_SLOW_MOTION';
 export const SET_IS_PLAYING = '__playback__SET_IS_PLAYING';
@@ -7,7 +7,7 @@ export const SET_IS_REPEATING = '__playback__SET_IS_REPEATING';
 export class SetIsSlowMotion implements Action {
   readonly type = SET_IS_SLOW_MOTION;
   readonly payload: { isSlowMotion: boolean };
-  constructor(readonly isSlowMotion: boolean) {
+  constructor(isSlowMotion: boolean) {
     this.payload = { isSlowMotion };
   }
 }
@@ -15,7 +15,7 @@ export class SetIsSlowMotion implements Action {
 export class SetIsPlaying implements Action {
   readonly type = SET_IS_PLAYING;
   readonly payload: { isPlaying: boolean };
-  constructor(readonly isPlaying: boolean) {
+  constructor(isPlaying: boolean) {
     this.payload = { isPlaying };
   }
 }
@@ -23,12 +23,9 @@ export class SetIsPlaying implements Action {
 export class SetIsRepeating implements Action {
   readonly type = SET_IS_REPEATING;
   readonly payload: { isRepeating: boolean };
-  constructor(readonly isRepeating: boolean) {
+  constructor(isRepeating: boolean) {
     this.payload = { isRepeating };
   }
 }
 
-export type Actions =
-  SetIsSlowMotion
-  | SetIsPlaying
-  | SetIsRepeating;
+export type Actions = SetIsSlowMotion | SetIsPlaying | SetIsRepeating;
