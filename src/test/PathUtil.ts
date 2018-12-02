@@ -1,5 +1,5 @@
-import { Path, SvgChar } from 'app/model/paths';
-import { Matrix } from 'app/scripts/common';
+import { Path, SvgChar } from 'app/modules/editor/model/paths';
+import { Matrix } from 'app/modules/editor/scripts/common';
 
 type PathOp =
   | 'RV'

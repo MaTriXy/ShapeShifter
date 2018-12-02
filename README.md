@@ -4,7 +4,7 @@
 [![Coverage Status][coveralls-badge]][coveralls-badge-url]
 [![GitHub Stats](https://img.shields.io/badge/github-stats-ff5500.svg)](http://githubstats.com/alexjlockwood/ShapeShifter)
 
-**[Go to Live Version](https://shapeshifter.design)**
+**[Go to live version](https://shapeshifter.design)** or **[ask a question on Slack](https://join.slack.com/t/shapeshifterdesign/shared_invite/enQtNDAwODY5NjI2NTE4LTAyZTE3ZmYxNGUxMmViY2UwNDJjZWYyYzhhNTQzYmVkYmVmNTA0NmEyY2MwMmFiOTllODI5YzZmNDQwOTE1MGU)**
 
 -----
 
@@ -18,29 +18,32 @@ format for Android. I am totally open to adding support for other export formats
 if you have a format that you'd like to see added in the future,
 file a [feature request][report-feature-request]!
 
+Try out the [beta version](https://beta.shapeshifter.design), which adds the ability to draw/edit paths directly on the canvas (written using the amazing [paper.js](http://paperjs.org/) library)!
+
 ![Screen capture of tool](art/screencap.gif)
 
 ## Backers
 
-Support us with a monthly donation and help us continue our activities. 
-Funds will go towards hiring new developers to work on awesome features! 
-We'll display your logo below with a link to your site. 
-🙏 [[Become a backer](https://opencollective.com/shapeshifter#backer)]
+Support us with either a one time donation or a monthly donation and help us
+continue our activities. Funds will go towards hiring new developers to work
+on awesome features! We'll display your logo below with a link to your site.
 
-<a href="https://opencollective.com/shapeshifter/backer/0/website" target="_blank"><img src="https://opencollective.com/shapeshifter/backer/0/avatar.svg"></a>
-<a href="https://opencollective.com/shapeshifter/backer/1/website" target="_blank"><img src="https://opencollective.com/shapeshifter/backer/1/avatar.svg"></a>
-<a href="https://opencollective.com/shapeshifter/backer/2/website" target="_blank"><img src="https://opencollective.com/shapeshifter/backer/2/avatar.svg"></a>
-<a href="https://opencollective.com/shapeshifter/backer/3/website" target="_blank"><img src="https://opencollective.com/shapeshifter/backer/3/avatar.svg"></a>
-<a href="https://opencollective.com/shapeshifter/backer/4/website" target="_blank"><img src="https://opencollective.com/shapeshifter/backer/4/avatar.svg"></a>
-<a href="https://opencollective.com/shapeshifter/backer/6/website" target="_blank"><img src="https://opencollective.com/shapeshifter/backer/6/avatar.svg"></a>
+<a href="https://opencollective.com/shapeshifter#backers" target="_blank"><img src="https://opencollective.com/shapeshifter/backers.svg?width=890"></a>
+
+🙏 [Become a backer](https://opencollective.com/shapeshifter#backer) 🙏
 
 ## Sponsors
 
-Is your company using Shape Shifter? Ask your manager to support us! 
-We'll display your logo below with a link to your site. 
-🙏 [[Become a sponsor](https://opencollective.com/shapeshifter#sponsor)]
+Is your company using Shape Shifter? Ask your manager to support us!
+We'll display your logo below with a link to your site.
+
+🙏 [Become a sponsor](https://opencollective.com/shapeshifter#sponsor) 🙏
 
 ## Examples
+
+I gave a couple of live demos that illustrate how to use the tool at Droidcon SF ([15:15 - 20:33](https://youtu.be/JhryKMOM6GI?t=15m15s)):
+
+[![In-depth path morphing with Shape Shifter](art/droidcon-sf-video-embed.png)](https://youtu.be/JhryKMOM6GI?t=15m15s)
 
 Here are some example icon animations created by Shape Shifter:
 
@@ -129,8 +132,6 @@ If you want to contribute, you can build and serve the web app locally as follow
      ```
      npm start
      ```
-
-If you're having issues with the build, make sure your `Node.js` version is up-to-date before reporting issues.
 
 ## Special thanks
 

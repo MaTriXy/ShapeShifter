@@ -2,5 +2,12 @@
   "printWidth": 100,
   "singleQuote": true,
   "trailingComma": "all",
-  "cssEnable": []
+  "overrides": [
+    {
+      "files": "*.scss",
+      "options": {
+        "tabWidth": 4
+      }
+    }
+  ]
 }

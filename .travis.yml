@@ -2,7 +2,7 @@ dist: trusty
 sudo: required
 language: node_js
 node_js:
-  - "8.1.1"
+  - "9.10.1"
 os:
   - linux
 env:
@@ -15,6 +15,7 @@ before_script:
 install:
   - npm install
 script:
+  - 'if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then precise-commits --check-only --head=$TRAVIS_PULL_REQUEST_SHA --base=$(git merge-base HEAD $TRAVIS_BRANCH); fi'
   - npm run lint
   - npm run test-once
   - npm run build
